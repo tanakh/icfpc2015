@@ -266,7 +266,7 @@ bool check(const vector<vector<int>> &bd, const pt &pos, const unit &u, int rot)
   return true;
 }
 
-pair<int,int> put_unit(vector<vector<int>> &bd, const pt &pos, const unit &u, int rot)
+pair<int,int> put_unit(vector<vector<int>> &bd, const pt &pos, const unit &u, int rot, int ls_old)
 {
   for (auto &c: u.members) {
     pt p = pos + rot_pivot(c, u.pivot, rot);
@@ -305,7 +305,10 @@ pair<int,int> put_unit(vector<vector<int>> &bd, const pt &pos, const unit &u, in
     cy--;
   }
 
-  return make_pair(u.members.size() + 100 * (1 + lines) * lines / 2, lines);
+  int points = u.members.size() + 100 * (1 + lines) * lines / 2;
+  int bonus = ls_old > 1 ? points * (ls_old - 1) / 10 : 0;
+
+  return make_pair(points + bonus, lines);
 }
 
 void print_board(const vector<vector<int>> &bd)
@@ -419,10 +422,10 @@ double calc_score(const vector<vector<int>> &bd, const pt &last, int lines)
 
   ret += eparam[0] * height;
   ret += eparam[1] * (double)last.imag();
-  ret += eparam[2] * holes;
-  ret += eparam[3] * roofs;
-  ret += eparam[4] * hroofs;
-  ret += eparam[5] * sides;
+  ret += -eparam[2] * holes;
+  ret += -eparam[3] * roofs;
+  ret += -eparam[4] * hroofs;
+  ret += -eparam[5] * sides;
   ret += eparam[6] * (double)(lines+1)*lines/2;
 
   return ret;
@@ -444,19 +447,23 @@ struct candidate {
   candidate(const candidate &r)
     : moves(r.moves)
     , move_score(r.move_score)
+    , ls_old(r.ls_old)
     , board(r.board)
-    , score(r.score) { }
+    , score(r.score)
+  { }
 
   candidate &operator=(const candidate &r) {
     this->moves = r.moves;
     this->move_score = r.move_score;
     this->board = r.board;
     this->score = r.score;
+    this->ls_old = r.ls_old;
     return *this;
   }
 
   vector<int> moves;
   int move_score;
+  int ls_old;
   vector<vector<int>> board;
   double score;
 
@@ -521,7 +528,7 @@ struct candidate {
 // }
 
 void rec(const vector<vector<int>> &bd, const unit &u, const pt &pos, int rot,
-         vector<int> &hist, set<pair<pair<int,int>, int>> &ss, candidate &cand)
+         vector<int> &hist, set<pair<pair<int,int>, int>> &ss, candidate &cand, int ls_old)
 {
   auto key = make_pair(make_pair(pos.real(), pos.imag()), rot);
   if (ss.count(key)) return;
@@ -529,11 +536,11 @@ void rec(const vector<vector<int>> &bd, const unit &u, const pt &pos, int rot,
 
   int invalid = -1;
 
-  const int ord[] = {2, 3, 1, 0, 4, 5};
+  // const int ord[] = {2, 3, 1, 0, 4, 5};
   // const int ord[] = {0, 1, 2, 3, 4, 5};
-  // int ord[] = {0, 1, 2, 3, 4, 5};
-  // for (int i=0;i<6;i++)
-  //   swap(ord[i], ord[i+rand()%(6-i)]);
+  int ord[] = {0, 1, 2, 3, 4, 5};
+  for (int i=0;i<6;i++)
+    swap(ord[i], ord[i+rand()%(6-i)]);
 
   for (int mov_ = 0; mov_ < 6; mov_++) {
     int mov = ord[mov_];
@@ -553,7 +560,7 @@ void rec(const vector<vector<int>> &bd, const unit &u, const pt &pos, int rot,
     }
 
     hist.push_back(mov);
-    rec(bd, u, npos, nrot, hist, ss, cand);
+    rec(bd, u, npos, nrot, hist, ss, cand, ls_old);
     hist.pop_back();
   }
 
@@ -564,17 +571,18 @@ void rec(const vector<vector<int>> &bd, const unit &u, const pt &pos, int rot,
     hist.pop_back();
 
     vector<vector<int>> bdd = bd;
-    auto tt = put_unit(bdd, pos, u, rot);
+    auto tt = put_unit(bdd, pos, u, rot, ls_old);
     tmp.move_score = tt.first;
     tmp.board = bdd;
 
-    // TODO
     pt upper = pt(0, 0x7fffffff);
     for (auto &p: u.members) {
       pt q = rot_pivot(p + pos, u.pivot + pos, rot);
       if (q.imag() < upper.imag())
         upper = q;
     }
+
+    tmp.ls_old = tt.second;
 
     tmp.score = calc_score(bdd, upper, tt.second);
     cand = max(cand, tmp);
@@ -604,6 +612,8 @@ pair<string, int> solve(const problem &prob, int seed, int tle, int mle)
   int move_score = 0;
   vector<int> moves;
 
+  int ls_old = 0;
+
   rng r(seed);
   for (int turn = 0; turn < prob.source_length; turn++) {
     vlog() << "turn: " << turn << endl;
@@ -614,18 +624,19 @@ pair<string, int> solve(const problem &prob, int seed, int tle, int mle)
     vector<int> hist;
     set<pair<pair<int,int>, int>> ss;
     candidate best;
-    rec(bd, u, pos, 0, hist, ss, best);
+    rec(bd, u, pos, 0, hist, ss, best, ls_old);
 
     bd = best.board;
     for (auto &m: best.moves)
       moves.push_back(m);
     move_score += best.move_score;
+    ls_old = best.ls_old;
 
-    vlog() << "selected: " << best.score << endl;
-    print_board(bd);
+    // vlog() << "selected: " << best.score << endl;
+    // print_board(bd);
   }
   // cerr << "id: " << prob.id << ", seed: " << seed << ", score: " << move_score << endl;
-  print_board(bd);
+  // print_board(bd);
 
   return make_pair(to_ans(moves), move_score);
 }
@@ -668,7 +679,7 @@ void replay(const problem &prob, int seed, const string &moves)
       }
       else {
         vlog() << "cmd: LOCK (" << show_command(mov) << ")" << endl;
-        move_score += put_unit(bd, pos, u, rot).first;
+        move_score += put_unit(bd, pos, u, rot, 0).first;
         print_board(bd);
         break;
       }
@@ -680,6 +691,8 @@ void replay(const problem &prob, int seed, const string &moves)
 
 int main(int argc, char *argv[])
 {
+  srand(time(NULL));
+
   string tag;
   vector<string> files;
   vector<string> ppw;
@@ -726,6 +739,7 @@ int main(int argc, char *argv[])
   vector<vector<int>> scores;
   for (auto &p: problems) {
     vector<int> ss;
+    cerr << p.id << ", " << p.width << "x" << p.height << endl;
 
     int ttt = 0;
     for (auto &seed: p.source_seeds) {
@@ -736,19 +750,19 @@ int main(int argc, char *argv[])
 
       vector<double> pp(7);
       for (int i = 0; i < 6; i++)
-        pp[i] = rand() % 10000 / 10000.0 * 10 - 5;
-      double temp = 100;
+        pp[i] = rand() % 10000 / 10000.0 * 10 - 3;
       double score = -1;
 
-      for (int t = 0; t < 200; t++, temp *= 0.992) {
-        if (t % 25 == 0) cerr << "turn: " << t << ": " << temp << endl;
+      double temp = 500;
+      for (int t = 0; t < 20000; t++, temp *= 0.997) {
+        if (t % 100 == 0) cerr << "turn: " << t << ": " << temp << endl;
 
         auto bkup = pp;
-        pp[rand() % pp.size()] = rand() % 10000 / 10000.0 * 10 - 5;
+        pp[rand() % pp.size()] = rand() % 10000 / 10000.0 * 10 - 3;
         eparam = pp;
 
         auto rr = solve(p, seed, tle, mle);
-        if (score <= rr.second || (rand() % 10000 / 10000.0) <= exp((rr.second - score) / temp)) {
+        if (score <= rr.second || (rand() % 10001 / 10000.0) <= exp((rr.second - score) / temp)) {
           score = rr.second;
 
           if (best_score < rr.second) {
@@ -756,7 +770,6 @@ int main(int argc, char *argv[])
             best_move = rr.first;
 
             cerr << "*** " << p.id << ", " << seed << ", " << t << ": " << best_score << endl;
-
 
             {
               stringstream ss;

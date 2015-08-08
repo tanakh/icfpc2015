@@ -1,0 +1,13 @@
+# ICFP Contest 2015 Submission
+
+* main.cpp
+
+    main solver
+
+* *.hs
+
+    utility
+
+The solver use feature of board, such as highest block, number of holes, narrow position and so on.
+Using feature, caluculate the score of board and choose best move for each unit.
+The weights of feature are determined by simulated annealing.
