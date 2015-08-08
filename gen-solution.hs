@@ -6,7 +6,7 @@ import           Text.Regex.TDFA
 
 main :: IO ()
 main = do
-    files <- filter (".json" `isSuffixOf`) <$> getDirectoryContents "out"
+    files <- filter (".json" `isSuffixOf`) <$> getDirectoryContents "out-full"
 
     let tt = [ ((ss!!1, ss!!2), (read (ss!!3) :: Int, file))
              | file <- files
@@ -23,7 +23,7 @@ main = do
 
     mapM_ (hPutStrLn stderr) gg
 
-    cons <- mapM (readFile . ("out/" ++)) gg
+    cons <- mapM (readFile . ("out-full/" ++)) gg
 
     putStrLn "["
     putStr $ intercalate "," cons

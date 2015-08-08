@@ -13,6 +13,8 @@
 using namespace std;
 using namespace picojson;
 
+set<string> ppw;
+
 bool verbose = false;
 ostringstream cnull;
 
@@ -178,9 +180,10 @@ char to_char(command m) {
   // case SE:  c = 'l'; break;
   // case CW:  c = 'd'; break;
   // case CCW: c = 'k'; break;
-  case W:   c = '3'; break;
-  case E:   c = '2'; break;
-  case SW:  c = '4'; break;
+
+  case W:   c = '!'; break;
+  case E:   c = 'e'; break;
+  case SW:  c = 'i'; break;
   case SE:  c = '5'; break;
   case CW:  c = '1'; break;
   case CCW: c = 'x'; break;
@@ -536,11 +539,13 @@ void rec(const vector<vector<int>> &bd, const unit &u, const pt &pos, int rot,
 
   int invalid = -1;
 
+  const int ord[] = {0, 1, 2, 3, 4, 5};
+
   // const int ord[] = {2, 3, 1, 0, 4, 5};
   // const int ord[] = {0, 1, 2, 3, 4, 5};
-  int ord[] = {0, 1, 2, 3, 4, 5};
-  for (int i=0;i<6;i++)
-    swap(ord[i], ord[i+rand()%(6-i)]);
+  // int ord[] = {0, 1, 2, 3, 4, 5};
+  //for (int i=0;i<6;i++)
+    //swap(ord[i], ord[i+rand()%(6-i)]);
 
   for (int mov_ = 0; mov_ < 6; mov_++) {
     int mov = ord[mov_];
@@ -605,11 +610,36 @@ vector<vector<int>> make_board(const problem &prob)
   return bd;
 }
 
-pair<string, int> solve(const problem &prob, int seed, int tle, int mle, const vector<double> &param)
+int power_score(const string &cmds)
+{
+  int ret = 0;
+
+  for (auto &word: ppw) {
+    int reps = 0;
+    for (int i = 0; i < (int)cmds.size(); i++) {
+      bool ok = true;
+      for (int j = 0; j < (int)word.size(); j++) {
+        if (i + j < (int)cmds.size() && tolower(cmds[i+j]) != tolower(word[j])) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) reps++;
+    }
+
+    if (reps > 0) ret += 300;
+    ret += 2 * word.length() * reps;
+  }
+
+  return ret;
+}
+
+pair<string, int> solve(const problem &prob, int seed, int tle, int mle, const vector<double> &param, bool progress)
 {
   eparam = param;
 
   auto bd = make_board(prob);
+  if (progress) print_board(bd);
 
   int move_score = 0;
   vector<int> moves;
@@ -634,13 +664,17 @@ pair<string, int> solve(const problem &prob, int seed, int tle, int mle, const v
     move_score += best.move_score;
     ls_old = best.ls_old;
 
-    // vlog() << "selected: " << best.score << endl;
-    // print_board(bd);
+    if (progress) {
+      vlog() << "selected: " << best.score << endl;
+      print_board(bd);
+    }
   }
-  // cerr << "id: " << prob.id << ", seed: " << seed << ", score: " << move_score << endl;
-  // print_board(bd);
+  if (progress) {
+    cerr << "id: " << prob.id << ", seed: " << seed << ", score: " << move_score << endl;
+    print_board(bd);
+  }
 
-  return make_pair(to_ans(moves), move_score);
+  return make_pair(to_ans(moves), move_score + power_score(to_ans(moves)));
 }
 
 pair<string, int> annealing(const problem &p, int seed, int tle, int mle, const string &tag)
@@ -660,7 +694,7 @@ pair<string, int> annealing(const problem &p, int seed, int tle, int mle, const 
     auto bkup = pp;
     pp[rand() % pp.size()] = rand() % 10000 / 10000.0 * 10 - 5;
 
-    auto rr = solve(p, seed, tle, mle, pp);
+    auto rr = solve(p, seed, tle, mle, pp, false);
     if (score <= rr.second || (rand() % 10001 / 10000.0) <= exp((rr.second - score) / temp)) {
       score = rr.second;
 
@@ -676,7 +710,7 @@ pair<string, int> annealing(const problem &p, int seed, int tle, int mle, const 
 
         {
           stringstream ss;
-          ss << "out/" << p.id << "-" << seed << "-" << best_score << ".json";
+          ss << "out-full/" << p.id << "-" << seed << "-" << best_score << ".json";
           ofstream ofs(ss.str().c_str());
 
           object o;
@@ -743,16 +777,22 @@ void replay(const problem &prob, int seed, const string &moves)
     }
   }
 
+  auto psc = power_score(moves);
+
   vlog() << "move score: " << move_score << endl;
+  vlog() << "power score: " << psc << endl;
+  vlog() << "total score: " << move_score + psc << endl;
 }
 
 int main(int argc, char *argv[])
 {
+  ppw.insert("ei!");
+  ppw.insert("yuggoth");
+
   srand(time(NULL));
 
   string tag;
   vector<string> files;
-  vector<string> ppw;
   int tle = -1;
   int mle = -1;
   int core = 1;
@@ -773,15 +813,22 @@ int main(int argc, char *argv[])
     }
     else if (arg == "-m") {
       mle = atoi(argv[i+1]);
+      i += 2;
     }
     else if (arg == "-c") {
       core = atoi(argv[i+1]);
+      i += 2;
     }
     else if (arg == "-p") {
-      ppw.push_back(argv[i+1]);
+      string w = argv[i+1];
+      for (auto &c: w) c = tolower(c);
+      ppw.insert(w);
+      i += 2;
     }
+
     else if (arg == "-g") {
       tag = argv[i+1];
+      i += 2;
     }
     else if (arg == "-v") {
       verbose = true;
@@ -814,7 +861,7 @@ int main(int argc, char *argv[])
       auto sol =
         anneal ?
         annealing(p, seed, tle, mle, tag) :
-        solve(p, seed, tle, mle, def_param);
+        solve(p, seed, tle, mle, def_param, true);
 
       if (!anneal) replay(p, seed, sol.first);
 
