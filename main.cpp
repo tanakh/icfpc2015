@@ -726,19 +726,25 @@ int main(int argc, char *argv[])
   vector<vector<int>> scores;
   for (auto &p: problems) {
     vector<int> ss;
+
+    int ttt = 0;
     for (auto &seed: p.source_seeds) {
+      cerr << p.id << " [" << ++ttt << "/" << p.source_seeds.size() << "]" << endl;
+
       int best_score = -1;
       string best_move;
 
       vector<double> pp(7);
       for (int i = 0; i < 6; i++)
-        pp[i] = rand() % 10000 / 10000.0 * 20 - 10;
-      double temp = 1000;
+        pp[i] = rand() % 10000 / 10000.0 * 10 - 5;
+      double temp = 100;
       double score = -1;
 
-      for (int t = 0; t < 1000; t++, temp *= 0.995) {
+      for (int t = 0; t < 200; t++, temp *= 0.992) {
+        if (t % 25 == 0) cerr << "turn: " << t << ": " << temp << endl;
+
         auto bkup = pp;
-        pp[rand() % pp.size()] = rand() % 10000 / 10000.0 * 20 - 10;
+        pp[rand() % pp.size()] = rand() % 10000 / 10000.0 * 10 - 5;
         eparam = pp;
 
         auto rr = solve(p, seed, tle, mle);
@@ -749,7 +755,23 @@ int main(int argc, char *argv[])
             best_score = rr.second;
             best_move = rr.first;
 
-            cerr << "*** " << p.id << ", " << seed << ": " << best_score << endl;
+            cerr << "*** " << p.id << ", " << seed << ", " << t << ": " << best_score << endl;
+
+
+            {
+              stringstream ss;
+              ss << "out/" << p.id << "-" << seed << "-" << best_score << ".json";
+              ofstream ofs(ss.str().c_str());
+
+              object o;
+              o["problemId"] = value((int64_t)p.id);
+              o["seed"] = value((int64_t)seed);
+              if (tag != "")
+                o["tag"] = value(tag);
+              o["solution"] = value(best_move);
+
+              ofs << value(o) << endl;
+            }
           }
         }
         else {
