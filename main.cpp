@@ -275,7 +275,7 @@ double calc_score(const vector<vector<int>> &bd)
 {
   int w = bd[0].size(), h = bd.size();
 
-  double height = h, holes = 0, roofs = 0;
+  double height = h, holes = 0, roofs = 0, sides = 0;
 
   for (int y = 0; y < h; y++) {
     for (int x = 0; x < w/2; x++) {
@@ -288,23 +288,25 @@ double calc_score(const vector<vector<int>> &bd)
         {-1, -1},
         {1, -1},
         {2, 0},
+        {-2, 0},
         {1, 1},
         {-1, 1},
-        {-2, 0},
       };
 
-      int rcnt = 0, tcnt = 0;
+      int rcnt = 0, scnt = 0, tcnt = 0;
       for (int i = 0; i < 6; i++) {
         int cx = xx + vect[i][0];
         int cy = y + vect[i][1];
 
         if (cx >= 0 && cx < w && cy >= 0 && cy < h && bd[cy][cx] == 0) continue;
         if (i < 2) rcnt++;
+        if (i == 2 || i == 3) scnt++;
         tcnt++;
       }
 
-      // if (rcnt == 2) roofs++;
-      roofs += rcnt;
+      if (rcnt == 2) roofs++;
+      // roofs += rcnt;
+      if (scnt == 2) sides++;
       if (tcnt == 6) holes++;
     }
   }
@@ -314,8 +316,9 @@ double calc_score(const vector<vector<int>> &bd)
   // vlog() << height << endl;
 
   ret += height / h * 10000;
-  ret += holes * -50;
-  ret += roofs * -10;
+  //  ret += holes * -100;
+  //  ret += roofs * -10;
+  //  ret += sides * -5;
 
   return ret;
 }
