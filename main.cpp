@@ -339,64 +339,133 @@ string to_ans(const vector<int> &v)
 }
 
 struct candidate {
+  candidate() {
+    score = -1e10;
+  }
+
+  candidate(const candidate &r)
+    : moves(r.moves)
+    , move_score(r.move_score)
+    , board(r.board)
+    , score(r.score) { }
+
+  candidate &operator=(const candidate &r) {
+    this->moves = r.moves;
+    this->move_score = r.move_score;
+    this->board = r.board;
+    this->score = r.score;
+    return *this;
+  }
+
   vector<int> moves;
   int move_score;
   vector<vector<int>> board;
+  double score;
+
+  bool operator<(const candidate &r) const {
+    return score < r.score;
+  }
 };
 
-candidate gen_cand(vector<vector<int>> bd, const unit &u, pt pos)
+// candidate gen_cand(vector<vector<int>> bd, const unit &u, pt pos)
+// {
+//   vector<int> moves;
+//   double move_score = 0;
+//   int rot = 0;
+
+//   set<pair<pair<int,int>, int>> ss;
+
+//   for (;;) {
+//     int d = rand() % 6;
+
+//     pt prev = pos;
+//     int prot = rot;
+
+//     switch(d) {
+//     case W:   pos += pt(-2, 0); break;
+//     case E:   pos += pt(2, 0); break;
+//     case SW:  pos += pt(-1, 1); break;
+//     case SE:  pos += pt(1, 1); break;
+//     case CW:  rot = (rot + 1) % u.rot_max; break;
+//     case CCW: rot = (rot + u.rot_max - 1) % u.rot_max; break;
+//     }
+
+//     bool ok = check(bd, pos, u, rot);
+//     if (!ok && (d==CW||d==CCW)) {
+//       pos = prev;
+//       rot = prot;
+//       continue;
+//     }
+
+//     auto key = make_pair(pt2pair(pos), rot);
+//     if (ss.count(key)) {
+//       pos = prev;
+//       rot = prot;
+//       continue;
+//     }
+//     ss.insert(key);
+
+//     moves.push_back(d);
+
+//     if (!ok) {
+//       pos = prev;
+//       rot = prot;
+//       move_score += put_unit(bd, pos, u, rot);
+//       break;
+//     }
+//   }
+
+//   candidate ret;
+//   ret.moves = moves;
+//   ret.move_score = move_score;
+//   ret.board = bd;
+//   return ret;
+// }
+
+void rec(const vector<vector<int>> &bd, const unit &u, const pt &pos, int rot,
+         vector<int> &hist, set<pair<pair<int,int>, int>> &ss, candidate &cand)
 {
-  vector<int> moves;
-  double move_score = 0;
-  int rot = 0;
+  auto key = make_pair(make_pair(pos.real(), pos.imag()), rot);
+  if (ss.count(key)) return;
+  ss.insert(key);
 
-  set<pair<pair<int,int>, int>> ss;
+  int invalid = -1;
 
-  for (;;) {
-    int d = rand() % 6;
-
-    pt prev = pos;
-    int prot = rot;
-
-    switch(d) {
-    case W:   pos += pt(-2, 0); break;
-    case E:   pos += pt(2, 0); break;
-    case SW:  pos += pt(-1, 1); break;
-    case SE:  pos += pt(1, 1); break;
-    case CW:  rot = (rot + 1) % u.rot_max; break;
-    case CCW: rot = (rot + u.rot_max - 1) % u.rot_max; break;
+  for (int mov = 0; mov < 6; mov++) {
+    pt npos = pos;
+    int nrot = rot;
+    switch(mov) {
+    case W:   npos += pt(-2, 0); break;
+    case E:   npos += pt(2, 0); break;
+    case SW:  npos += pt(-1, 1); break;
+    case SE:  npos += pt(1, 1); break;
+    case CW:  nrot = (nrot + 1) % u.rot_max; break;
+    case CCW: nrot = (nrot + u.rot_max - 1) % u.rot_max; break;
     }
-
-    bool ok = check(bd, pos, u, rot);
-    if (!ok && (d==CW||d==CCW)) {
-      pos = prev;
-      rot = prot;
+    if (!check(bd, npos, u, nrot)) {
+      invalid = mov;
       continue;
     }
 
-    auto key = make_pair(pt2pair(pos), rot);
-    if (ss.count(key)) {
-      pos = prev;
-      rot = prot;
-      continue;
-    }
-    ss.insert(key);
-
-    moves.push_back(d);
-
-    if (!ok) {
-      pos = prev;
-      rot = prot;
-      move_score += put_unit(bd, pos, u, rot);
-      break;
-    }
+    hist.push_back(mov);
+    rec(bd, u, npos, nrot, hist, ss, cand);
+    hist.pop_back();
   }
 
-  candidate ret;
-  ret.moves = moves;
-  ret.move_score = move_score;
-  ret.board = bd;
-  return ret;
+  if (invalid >= 0) {
+    candidate tmp;
+    hist.push_back(invalid);
+    tmp.moves = hist;
+    hist.pop_back();
+
+    vector<vector<int>> bdd = bd;
+    tmp.move_score = put_unit(bdd, pos, u, rot);
+    tmp.board = bdd;
+    tmp.score = calc_score(bdd);
+    cand = max(cand, tmp);
+  }
+
+  return;
 }
 
 string solve(const problem &prob, int seed, int tle, int mle)
@@ -420,25 +489,30 @@ string solve(const problem &prob, int seed, int tle, int mle)
     pt pos = get_init_pos(prob, u);
     if (!check(bd, pos, u, 0)) break;
 
+    // candidate best;
+    // double best_score = -1e10;
+    // for (int i = 0; i < 1000; i++) {
+    //   auto cand = gen_cand(bd, u, pos);
+    //   double score = calc_score(cand.board);
+    //   //vlog() << "cand; " << score << ", " << to_ans(cand.first) << endl;
+    //   //print_board(cand.second);
+    //   if (score > best_score) {
+    //     best_score = score;
+    //     best = cand;
+    //   }
+    // }
+
+    vector<int> hist;
+    set<pair<pair<int,int>, int>> ss;
     candidate best;
-    double best_score = -1e10;
-    for (int i = 0; i < 1000; i++) {
-      auto cand = gen_cand(bd, u, pos);
-      double score = calc_score(cand.board);
-      // vlog() << "cand; " << score << ", " << to_ans(cand.first) << endl;
-      // print_board(cand.second);
-      if (score > best_score) {
-        best_score = score;
-        best = cand;
-      }
-    }
+    rec(bd, u, pos, 0, hist, ss, best);
 
     bd = best.board;
     for (auto &m: best.moves)
       moves.push_back(m);
     move_score += best.move_score;
 
-    vlog() << "selected:" << endl;
+    vlog() << "selected: " << best.score << endl;
     print_board(bd);
   }
   cerr << "id: " << prob.id << ", seed: " << seed << ", score: " << move_score << endl;
