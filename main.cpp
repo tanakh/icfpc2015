@@ -355,11 +355,13 @@ pt get_init_pos(const problem &prob, const unit &u)
   return pt(px*2+(py%2+2)%2, py);
 }
 
+vector<double> eparam;
+
 double calc_score(const vector<vector<int>> &bd, const pt &last, int lines)
 {
   int w = bd[0].size(), h = bd.size();
 
-  double height = h, holes = 0, roofs = 0, hroofs = 0, sides = 0;
+  double height = h, holes = 0, roofs = 0, hroofs = 0, sides = 0, hsides = 0;
 
   for (int y = 0; y < h; y++) {
     for (int x = 0; x < w/2; x++) {
@@ -393,6 +395,7 @@ double calc_score(const vector<vector<int>> &bd, const pt &last, int lines)
 
       if (rcnt == 1) hroofs++;
       if (rcnt == 2) roofs++;
+      if (scnt == 1) hsides++;
       if (scnt == 2) sides++;
       if (tcnt == 6) holes++;
     }
@@ -401,16 +404,26 @@ double calc_score(const vector<vector<int>> &bd, const pt &last, int lines)
   double ret = 0;
 
   // vlog() << height << ", " << holes << ", " << roofs << ", " << sides << endl;
-  height /= h;
+  // height /= h;
   // if (height >= 0.8) height = 1;
 
-  // ret += height * 10000;
+  /*
+  // ret += height * 500;
   ret += (double)last.imag() * 334;
   ret += holes  * -500;
   ret += roofs  * -400;
   ret += hroofs * -300;
   ret += sides  * -100;
-  ret += (double)(lines+1)*lines/2  * 1000;
+  ret += (double)(lines+1)*lines/2  * 500;
+  */
+
+  ret += eparam[0] * height;
+  ret += eparam[1] * (double)last.imag();
+  ret += eparam[2] * holes;
+  ret += eparam[3] * roofs;
+  ret += eparam[4] * hroofs;
+  ret += eparam[5] * sides;
+  ret += eparam[6] * (double)(lines+1)*lines/2;
 
   return ret;
 }
@@ -516,8 +529,11 @@ void rec(const vector<vector<int>> &bd, const unit &u, const pt &pos, int rot,
 
   int invalid = -1;
 
-  const int ord[] = {2, 3, 0, 1, 4, 5};
+  const int ord[] = {2, 3, 1, 0, 4, 5};
   // const int ord[] = {0, 1, 2, 3, 4, 5};
+  // int ord[] = {0, 1, 2, 3, 4, 5};
+  // for (int i=0;i<6;i++)
+  //   swap(ord[i], ord[i+rand()%(6-i)]);
 
   for (int mov_ = 0; mov_ < 6; mov_++) {
     int mov = ord[mov_];
@@ -608,7 +624,7 @@ pair<string, int> solve(const problem &prob, int seed, int tle, int mle)
     vlog() << "selected: " << best.score << endl;
     print_board(bd);
   }
-  cerr << "id: " << prob.id << ", seed: " << seed << ", score: " << move_score << endl;
+  // cerr << "id: " << prob.id << ", seed: " << seed << ", score: " << move_score << endl;
   print_board(bd);
 
   return make_pair(to_ans(moves), move_score);
@@ -711,8 +727,37 @@ int main(int argc, char *argv[])
   for (auto &p: problems) {
     vector<int> ss;
     for (auto &seed: p.source_seeds) {
-      auto rr = solve(p, seed, tle, mle);
-      auto move = rr.first;
+      int best_score = -1;
+      string best_move;
+
+      vector<double> pp(7);
+      for (int i = 0; i < 6; i++)
+        pp[i] = rand() % 10000 / 10000.0 * 20 - 10;
+      double temp = 1000;
+      double score = -1;
+
+      for (int t = 0; t < 1000; t++, temp *= 0.995) {
+        auto bkup = pp;
+        pp[rand() % pp.size()] = rand() % 10000 / 10000.0 * 20 - 10;
+        eparam = pp;
+
+        auto rr = solve(p, seed, tle, mle);
+        if (score <= rr.second || (rand() % 10000 / 10000.0) <= exp((rr.second - score) / temp)) {
+          score = rr.second;
+
+          if (best_score < rr.second) {
+            best_score = rr.second;
+            best_move = rr.first;
+
+            cerr << "*** " << p.id << ", " << seed << ": " << best_score << endl;
+          }
+        }
+        else {
+          pp = bkup;
+        }
+      }
+
+      auto move = best_move;
       replay(p, seed, move);
       object o;
       o["problemId"] = value((int64_t)p.id);
@@ -721,7 +766,7 @@ int main(int argc, char *argv[])
         o["tag"] = value(tag);
       o["solution"] = value(move);
       v.push_back(value(o));
-      ss.push_back(rr.second);
+      ss.push_back(best_score);
     }
     scores.push_back(ss);
   }
@@ -737,7 +782,13 @@ int main(int argc, char *argv[])
     avg /= scores[i].size();
     vv.emplace_back(problems[i].id, avg);
 
-    gtot += avg / problems[i].source_length;
+    double avg_size = 0;
+    for (auto &p: problems[i].units)
+      avg_size += p.members.size();
+    avg_size /= problems[i].units.size();
+    double blks = problems[i].source_length * avg_size;
+    double exp_line = blks / problems[i].width;
+    gtot += avg / exp_line;
   }
 
   sort(vv.begin(), vv.end());
@@ -745,7 +796,7 @@ int main(int argc, char *argv[])
   for (auto &i: vv)
     cerr << i.first << ": " << i.second << endl;
 
-  cerr << "grand total: " << gtot << endl;
+  cerr << "grand total: " << gtot / problems.size() << endl;
 
   return 0;
 }
