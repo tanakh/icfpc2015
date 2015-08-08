@@ -605,8 +605,10 @@ vector<vector<int>> make_board(const problem &prob)
   return bd;
 }
 
-pair<string, int> solve(const problem &prob, int seed, int tle, int mle)
+pair<string, int> solve(const problem &prob, int seed, int tle, int mle, const vector<double> &param)
 {
+  eparam = param;
+
   auto bd = make_board(prob);
 
   int move_score = 0;
@@ -616,7 +618,7 @@ pair<string, int> solve(const problem &prob, int seed, int tle, int mle)
 
   rng r(seed);
   for (int turn = 0; turn < prob.source_length; turn++) {
-    vlog() << "turn: " << turn << endl;
+    // vlog() << "turn: " << turn << endl;
     const unit &u = prob.units[r.get() % prob.units.size()];
     pt pos = get_init_pos(prob, u);
     if (!check(bd, pos, u, 0)) break;
@@ -639,6 +641,61 @@ pair<string, int> solve(const problem &prob, int seed, int tle, int mle)
   // print_board(bd);
 
   return make_pair(to_ans(moves), move_score);
+}
+
+pair<string, int> annealing(const problem &p, int seed, int tle, int mle, const string &tag)
+{
+  int best_score = -1;
+  string best_move;
+
+  vector<double> pp(7);
+  for (int i = 0; i < 6; i++)
+    pp[i] = rand() % 10000 / 10000.0 * 10 - 5;
+  double score = -1;
+
+  double temp = 500;
+  for (int t = 0; t < 20000; t++, temp *= 0.999) {
+    if (t % 100 == 0) cerr << "turn: " << t << ": " << temp << endl;
+
+    auto bkup = pp;
+    pp[rand() % pp.size()] = rand() % 10000 / 10000.0 * 10 - 5;
+
+    auto rr = solve(p, seed, tle, mle, pp);
+    if (score <= rr.second || (rand() % 10001 / 10000.0) <= exp((rr.second - score) / temp)) {
+      score = rr.second;
+
+      if (best_score < rr.second) {
+        best_score = rr.second;
+        best_move = rr.first;
+
+        cerr << "*** " << p.id << ", " << seed << ", " << t << ": " << best_score << endl;
+        cerr << "param[7] = [";
+        for (int i = 0; i < pp.size(); i++)
+          cerr << pp[i] << ", ";
+        cerr << "]" << endl;;
+
+        {
+          stringstream ss;
+          ss << "out/" << p.id << "-" << seed << "-" << best_score << ".json";
+          ofstream ofs(ss.str().c_str());
+
+          object o;
+          o["problemId"] = value((int64_t)p.id);
+          o["seed"] = value((int64_t)seed);
+          if (tag != "")
+            o["tag"] = value(tag);
+          o["solution"] = value(best_move);
+
+          ofs << value(o) << endl;
+        }
+      }
+    }
+    else {
+      pp = bkup;
+    }
+  }
+
+  return make_pair(best_move, best_score);
 }
 
 void replay(const problem &prob, int seed, const string &moves)
@@ -699,31 +756,40 @@ int main(int argc, char *argv[])
   int tle = -1;
   int mle = -1;
   int core = 1;
+  bool anneal = false;
 
-  for (int i = 1; i < argc; i += 2) {
+  vector<double> def_param {-2.016, 2.928, 4.761, 4.257, 1.862, -0.857, 1.512,};
+
+  for (int i = 1; i < argc; ) {
     string arg = argv[i];
 
     if (arg == "-f") {
       files.push_back(argv[i+1]);
+      i += 2;
     }
-    if (arg == "-t") {
+    else if (arg == "-t") {
       tle = atoi(argv[i+1]);
+      i += 2;
     }
-    if (arg == "-m") {
+    else if (arg == "-m") {
       mle = atoi(argv[i+1]);
     }
-    if (arg == "-c") {
+    else if (arg == "-c") {
       core = atoi(argv[i+1]);
     }
-    if (arg == "-p") {
+    else if (arg == "-p") {
       ppw.push_back(argv[i+1]);
     }
-    if (arg == "-g") {
+    else if (arg == "-g") {
       tag = argv[i+1];
     }
-
-    if (arg == "-v") {
+    else if (arg == "-v") {
       verbose = true;
+      i++;
+    }
+    else if (arg == "-a") {
+      anneal = true;
+      i++;
     }
   }
 
@@ -745,63 +811,21 @@ int main(int argc, char *argv[])
     for (auto &seed: p.source_seeds) {
       cerr << p.id << " [" << ++ttt << "/" << p.source_seeds.size() << "]" << endl;
 
-      int best_score = -1;
-      string best_move;
+      auto sol =
+        anneal ?
+        annealing(p, seed, tle, mle, tag) :
+        solve(p, seed, tle, mle, def_param);
 
-      vector<double> pp(7);
-      for (int i = 0; i < 6; i++)
-        pp[i] = rand() % 10000 / 10000.0 * 10 - 3;
-      double score = -1;
+      if (!anneal) replay(p, seed, sol.first);
 
-      double temp = 500;
-      for (int t = 0; t < 20000; t++, temp *= 0.997) {
-        if (t % 100 == 0) cerr << "turn: " << t << ": " << temp << endl;
-
-        auto bkup = pp;
-        pp[rand() % pp.size()] = rand() % 10000 / 10000.0 * 10 - 3;
-        eparam = pp;
-
-        auto rr = solve(p, seed, tle, mle);
-        if (score <= rr.second || (rand() % 10001 / 10000.0) <= exp((rr.second - score) / temp)) {
-          score = rr.second;
-
-          if (best_score < rr.second) {
-            best_score = rr.second;
-            best_move = rr.first;
-
-            cerr << "*** " << p.id << ", " << seed << ", " << t << ": " << best_score << endl;
-
-            {
-              stringstream ss;
-              ss << "out/" << p.id << "-" << seed << "-" << best_score << ".json";
-              ofstream ofs(ss.str().c_str());
-
-              object o;
-              o["problemId"] = value((int64_t)p.id);
-              o["seed"] = value((int64_t)seed);
-              if (tag != "")
-                o["tag"] = value(tag);
-              o["solution"] = value(best_move);
-
-              ofs << value(o) << endl;
-            }
-          }
-        }
-        else {
-          pp = bkup;
-        }
-      }
-
-      auto move = best_move;
-      replay(p, seed, move);
       object o;
       o["problemId"] = value((int64_t)p.id);
       o["seed"] = value((int64_t)seed);
       if (tag != "")
         o["tag"] = value(tag);
-      o["solution"] = value(move);
+      o["solution"] = value(sol.first);
       v.push_back(value(o));
-      ss.push_back(best_score);
+      ss.push_back(sol.second);
     }
     scores.push_back(ss);
   }
