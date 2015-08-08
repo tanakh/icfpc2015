@@ -290,7 +290,7 @@ int put_unit(vector<vector<int>> &bd, const pt &pos, const unit &u, int rot)
   }
 
   while (cy >= 0) {
-    for (int x = 0; x < w/2; x++)
+    for (int x = 0; x < w; x++)
       bd[cy][x*2+cy%2] = 0;
     cy--;
   }
