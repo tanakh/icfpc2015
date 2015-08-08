@@ -169,12 +169,18 @@ enum command {
 char to_char(command m) {
   char c;
   switch (m) {
-  case W:   c = 'p'; break;
-  case E:   c = 'b'; break;
-  case SW:  c = 'a'; break;
-  case SE:  c = 'l'; break;
-  case CW:  c = 'd'; break;
-  case CCW: c = 'k'; break;
+  // case W:   c = 'p'; break;
+  // case E:   c = 'b'; break;
+  // case SW:  c = 'a'; break;
+  // case SE:  c = 'l'; break;
+  // case CW:  c = 'd'; break;
+  // case CCW: c = 'k'; break;
+  case W:   c = '3'; break;
+  case E:   c = '2'; break;
+  case SW:  c = '4'; break;
+  case SE:  c = '5'; break;
+  case CW:  c = '1'; break;
+  case CCW: c = 'x'; break;
   }
   return c;
 }
@@ -256,7 +262,7 @@ bool check(const vector<vector<int>> &bd, const pt &pos, const unit &u, int rot)
   return true;
 }
 
-int put_unit(vector<vector<int>> &bd, const pt &pos, const unit &u, int rot)
+pair<int,int> put_unit(vector<vector<int>> &bd, const pt &pos, const unit &u, int rot)
 {
   for (auto &c: u.members) {
     pt p = pos + rot_pivot(c, u.pivot, rot);
@@ -295,7 +301,7 @@ int put_unit(vector<vector<int>> &bd, const pt &pos, const unit &u, int rot)
     cy--;
   }
 
-  return u.members.size() + 100 * (1 + lines) * lines / 2;
+  return make_pair(u.members.size() + 100 * (1 + lines) * lines / 2, lines);
 }
 
 void print_board(const vector<vector<int>> &bd)
@@ -340,16 +346,16 @@ pt get_init_pos(const problem &prob, const unit &u)
   }
 
   int py = -miny;
-  int px = (prob.width - (maxx - minx + 1)) / 2;
+  int px = (prob.width - (maxx - minx + 1)) / 2 - minx;
 
   return pt(px*2+(py%2+2)%2, py);
 }
 
-double calc_score(const vector<vector<int>> &bd)
+double calc_score(const vector<vector<int>> &bd, int lines)
 {
   int w = bd[0].size(), h = bd.size();
 
-  double height = h, holes = 0, roofs = 0, sides = 0;
+  double height = h, holes = 0, roofs = 0, hroofs = 0, sides = 0;
 
   for (int y = 0; y < h; y++) {
     for (int x = 0; x < w/2; x++) {
@@ -357,6 +363,9 @@ double calc_score(const vector<vector<int>> &bd)
       if (bd[y][xx] != 0) {
         height = min(height, (double)y);
       }
+
+      if (bd[y][xx] != 0)
+        continue;
 
       const int vect[][2] = {
         {-1, -1},
@@ -378,8 +387,8 @@ double calc_score(const vector<vector<int>> &bd)
         tcnt++;
       }
 
+      if (rcnt == 1) hroofs++;
       if (rcnt == 2) roofs++;
-      // roofs += rcnt;
       if (scnt == 2) sides++;
       if (tcnt == 6) holes++;
     }
@@ -387,12 +396,16 @@ double calc_score(const vector<vector<int>> &bd)
 
   double ret = 0;
 
-  // vlog() << height << endl;
+  // vlog() << height << ", " << holes << ", " << roofs << ", " << sides << endl;
+  height /= h;
+  // if (height >= 0.7) height = 1;
 
-  ret += height / h * 10000;
-  //  ret += holes * -100;
-  //  ret += roofs * -10;
-  //  ret += sides * -5;
+  ret += height * 10000;
+  ret += holes  * -500;
+  ret += roofs  * -400;
+  ret += hroofs * -200;
+  ret += sides  * -100;
+  ret += (double)(lines+1)*lines/2  * 100;
 
   return ret;
 }
@@ -498,7 +511,11 @@ void rec(const vector<vector<int>> &bd, const unit &u, const pt &pos, int rot,
 
   int invalid = -1;
 
-  for (int mov = 0; mov < 6; mov++) {
+  const int ord[] = {2, 3, 0, 1, 4, 5};
+  // const int ord[] = {0, 1, 2, 3, 4, 5};
+
+  for (int mov_ = 0; mov_ < 6; mov_++) {
+    int mov = ord[mov_];
     pt npos = pos;
     int nrot = rot;
     switch(mov) {
@@ -526,9 +543,10 @@ void rec(const vector<vector<int>> &bd, const unit &u, const pt &pos, int rot,
     hist.pop_back();
 
     vector<vector<int>> bdd = bd;
-    tmp.move_score = put_unit(bdd, pos, u, rot);
+    auto tt = put_unit(bdd, pos, u, rot);
+    tmp.move_score = tt.first;
     tmp.board = bdd;
-    tmp.score = calc_score(bdd);
+    tmp.score = calc_score(bdd, tt.second);
     cand = max(cand, tmp);
   }
 
@@ -549,7 +567,7 @@ vector<vector<int>> make_board(const problem &prob)
   return bd;
 }
 
-string solve(const problem &prob, int seed, int tle, int mle)
+pair<string, int> solve(const problem &prob, int seed, int tle, int mle)
 {
   auto bd = make_board(prob);
 
@@ -562,19 +580,6 @@ string solve(const problem &prob, int seed, int tle, int mle)
     const unit &u = prob.units[r.get() % prob.units.size()];
     pt pos = get_init_pos(prob, u);
     if (!check(bd, pos, u, 0)) break;
-
-    // candidate best;
-    // double best_score = -1e10;
-    // for (int i = 0; i < 1000; i++) {
-    //   auto cand = gen_cand(bd, u, pos);
-    //   double score = calc_score(cand.board);
-    //   //vlog() << "cand; " << score << ", " << to_ans(cand.first) << endl;
-    //   //print_board(cand.second);
-    //   if (score > best_score) {
-    //     best_score = score;
-    //     best = cand;
-    //   }
-    // }
 
     vector<int> hist;
     set<pair<pair<int,int>, int>> ss;
@@ -592,7 +597,7 @@ string solve(const problem &prob, int seed, int tle, int mle)
   cerr << "id: " << prob.id << ", seed: " << seed << ", score: " << move_score << endl;
   print_board(bd);
 
-  return to_ans(moves);
+  return make_pair(to_ans(moves), move_score);
 }
 
 void replay(const problem &prob, int seed, const string &moves)
@@ -633,7 +638,7 @@ void replay(const problem &prob, int seed, const string &moves)
       }
       else {
         vlog() << "cmd: LOCK (" << show_command(mov) << ")" << endl;
-        move_score += put_unit(bd, pos, u, rot);
+        move_score += put_unit(bd, pos, u, rot).first;
         print_board(bd);
         break;
       }
@@ -688,9 +693,12 @@ int main(int argc, char *argv[])
     total_problems += p.source_seeds.size();
 
   picojson::array v;
+  vector<vector<int>> scores;
   for (auto &p: problems) {
+    vector<int> ss;
     for (auto &seed: p.source_seeds) {
-      string move = solve(p, seed, tle, mle);
+      auto rr = solve(p, seed, tle, mle);
+      auto move = rr.first;
       replay(p, seed, move);
       object o;
       o["problemId"] = value((int64_t)p.id);
@@ -699,11 +707,25 @@ int main(int argc, char *argv[])
         o["tag"] = value(tag);
       o["solution"] = value(move);
       v.push_back(value(o));
-
-      // break;
+      ss.push_back(rr.second);
     }
+    scores.push_back(ss);
   }
   cout << value(v) << endl;
+
+  double gtot = 0;
+
+  cerr << "summary: " << endl;
+  for (int i=0;i<(int)problems.size();i++) {
+    double avg = 0;
+    for (auto &p: scores[i]) avg += p;
+    avg /= scores[i].size();
+    cerr << problems[i].id << ": " << avg << endl;
+
+    gtot += avg / problems[i].source_length;
+  }
+
+  cerr << "grand total: " << gtot << endl;
 
   return 0;
 }
