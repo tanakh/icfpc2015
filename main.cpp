@@ -166,6 +166,80 @@ enum command {
   W, E, SW, SE, CW, CCW
 };
 
+char to_char(command m) {
+  char c;
+  switch (m) {
+  case W:   c = 'p'; break;
+  case E:   c = 'b'; break;
+  case SW:  c = 'a'; break;
+  case SE:  c = 'l'; break;
+  case CW:  c = 'd'; break;
+  case CCW: c = 'k'; break;
+  }
+  return c;
+}
+
+string show_command(command m) {
+  switch (m) {
+  case W:   return "W";
+  case E:   return "E";
+  case SW:  return "SW";
+  case SE:  return "SE";
+  case CW:  return "CW";
+  case CCW: return "CCW";
+  }
+}
+
+map<char, command> cmdmap;
+
+command to_command(char c) {
+  c = tolower(c);
+  if (cmdmap.empty()) {
+    cmdmap['p'] = W;
+    cmdmap['\''] = W;
+    cmdmap['!'] = W;
+    cmdmap['.'] = W;
+    cmdmap['0'] = W;
+    cmdmap['3'] = W;
+
+    cmdmap['b'] = E;
+    cmdmap['c'] = E;
+    cmdmap['e'] = E;
+    cmdmap['f'] = E;
+    cmdmap['y'] = E;
+    cmdmap['2'] = E;
+
+    cmdmap['a'] = SW;
+    cmdmap['g'] = SW;
+    cmdmap['h'] = SW;
+    cmdmap['i'] = SW;
+    cmdmap['j'] = SW;
+
+    cmdmap['l'] = SE;
+    cmdmap['m'] = SE;
+    cmdmap['n'] = SE;
+    cmdmap['o'] = SE;
+    cmdmap[' '] = SE;
+    cmdmap['5'] = SE;
+
+    cmdmap['d'] = CW;
+    cmdmap['q'] = CW;
+    cmdmap['r'] = CW;
+    cmdmap['v'] = CW;
+    cmdmap['z'] = CW;
+    cmdmap['1'] = CW;
+
+    cmdmap['k'] = CCW;
+    cmdmap['s'] = CCW;
+    cmdmap['t'] = CCW;
+    cmdmap['u'] = CCW;
+    cmdmap['w'] = CCW;
+    cmdmap['x'] = CCW;
+  }
+
+  return cmdmap[c];
+}
+
 inline bool check_one(const vector<vector<int>> &bd,
                       const pt &pos, const pt &pivot, const pt &cell, int rot)
 {
@@ -326,18 +400,8 @@ double calc_score(const vector<vector<int>> &bd)
 string to_ans(const vector<int> &v)
 {
   string ret;
-  for (auto &m: v) {
-    char c;
-    switch (m) {
-    case W:   c = 'p'; break;
-    case E:   c = 'b'; break;
-    case SW:  c = 'a'; break;
-    case SE:  c = 'l'; break;
-    case CW:  c = 'd'; break;
-    case CCW: c = 'k'; break;
-    }
-    ret += c;
-  }
+  for (auto &m: v)
+    ret += to_char((command)m);
   return ret;
 }
 
@@ -471,7 +535,7 @@ void rec(const vector<vector<int>> &bd, const unit &u, const pt &pos, int rot,
   return;
 }
 
-string solve(const problem &prob, int seed, int tle, int mle)
+vector<vector<int>> make_board(const problem &prob)
 {
   vector<vector<int>> bd(prob.height, vector<int>(prob.width*2, 1));
 
@@ -481,6 +545,13 @@ string solve(const problem &prob, int seed, int tle, int mle)
 
   for (auto &p: prob.filled)
     bd[p.imag()][p.real()] = 1;
+
+  return bd;
+}
+
+string solve(const problem &prob, int seed, int tle, int mle)
+{
+  auto bd = make_board(prob);
 
   int move_score = 0;
   vector<int> moves;
@@ -522,6 +593,54 @@ string solve(const problem &prob, int seed, int tle, int mle)
   print_board(bd);
 
   return to_ans(moves);
+}
+
+void replay(const problem &prob, int seed, const string &moves)
+{
+  vlog() << "replay:" << endl;
+  auto bd = make_board(prob);
+  rng r(seed);
+
+  const char *p = moves.c_str();
+  int move_score = 0;
+
+  for (int turn = 0; turn < prob.source_length; turn++) {
+    const unit &u = prob.units[r.get() % prob.units.size()];
+    pt pos = get_init_pos(prob, u);
+    int rot = 0;
+    if (!check(bd, pos, u, rot))
+      break;
+    vlog() << "*POP*" << endl;
+    print_board_(bd, pos, u, rot);
+
+    for (;*p;) {
+      pt npos = pos;
+      int nrot = rot;
+      command mov = to_command(*p++);
+      switch(mov) {
+      case W:   npos += pt(-2, 0); break;
+      case E:   npos += pt(2, 0); break;
+      case SW:  npos += pt(-1, 1); break;
+      case SE:  npos += pt(1, 1); break;
+      case CW:  nrot = (nrot + 1) % u.rot_max; break;
+      case CCW: nrot = (nrot + u.rot_max - 1) % u.rot_max; break;
+      }
+      if (check(bd, npos, u, nrot)) {
+        pos = npos;
+        rot = nrot;
+        vlog() << "cmd: " << show_command(mov) << endl;
+        print_board_(bd, pos, u, rot);
+      }
+      else {
+        vlog() << "cmd: LOCK (" << show_command(mov) << ")" << endl;
+        move_score += put_unit(bd, pos, u, rot);
+        print_board(bd);
+        break;
+      }
+    }
+  }
+
+  vlog() << "move score: " << move_score << endl;
 }
 
 int main(int argc, char *argv[])
@@ -572,6 +691,7 @@ int main(int argc, char *argv[])
   for (auto &p: problems) {
     for (auto &seed: p.source_seeds) {
       string move = solve(p, seed, tle, mle);
+      replay(p, seed, move);
       object o;
       o["problemId"] = value((int64_t)p.id);
       o["seed"] = value((int64_t)seed);
