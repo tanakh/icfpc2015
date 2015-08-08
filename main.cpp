@@ -50,6 +50,7 @@ struct unit {
   pt pivot;
 
   int rot_max;
+  int miny;
 };
 
 struct problem {
@@ -118,7 +119,9 @@ unit to_unit(value &v) {
     u.rot_max = i + 1;
   }
 
-  // cout << "* " << u.rot_max << endl;
+  u.miny = 0x7fffffff;
+  for (auto &p: u.members)
+    u.miny = min(u.miny, p.imag());
 
   return u;
 }
@@ -220,6 +223,7 @@ command to_command(char c) {
     cmdmap['h'] = SW;
     cmdmap['i'] = SW;
     cmdmap['j'] = SW;
+    cmdmap['4'] = SW;
 
     cmdmap['l'] = SE;
     cmdmap['m'] = SE;
@@ -351,7 +355,7 @@ pt get_init_pos(const problem &prob, const unit &u)
   return pt(px*2+(py%2+2)%2, py);
 }
 
-double calc_score(const vector<vector<int>> &bd, int lines)
+double calc_score(const vector<vector<int>> &bd, const pt &last, int lines)
 {
   int w = bd[0].size(), h = bd.size();
 
@@ -398,14 +402,15 @@ double calc_score(const vector<vector<int>> &bd, int lines)
 
   // vlog() << height << ", " << holes << ", " << roofs << ", " << sides << endl;
   height /= h;
-  // if (height >= 0.7) height = 1;
+  // if (height >= 0.8) height = 1;
 
-  ret += height * 10000;
+  // ret += height * 10000;
+  ret += (double)last.imag() * 334;
   ret += holes  * -500;
   ret += roofs  * -400;
-  ret += hroofs * -200;
+  ret += hroofs * -300;
   ret += sides  * -100;
-  ret += (double)(lines+1)*lines/2  * 100;
+  ret += (double)(lines+1)*lines/2  * 1000;
 
   return ret;
 }
@@ -546,7 +551,16 @@ void rec(const vector<vector<int>> &bd, const unit &u, const pt &pos, int rot,
     auto tt = put_unit(bdd, pos, u, rot);
     tmp.move_score = tt.first;
     tmp.board = bdd;
-    tmp.score = calc_score(bdd, tt.second);
+
+    // TODO
+    pt upper = pt(0, 0x7fffffff);
+    for (auto &p: u.members) {
+      pt q = rot_pivot(p + pos, u.pivot + pos, rot);
+      if (q.imag() < upper.imag())
+        upper = q;
+    }
+
+    tmp.score = calc_score(bdd, upper, tt.second);
     cand = max(cand, tmp);
   }
 
@@ -716,14 +730,20 @@ int main(int argc, char *argv[])
   double gtot = 0;
 
   cerr << "summary: " << endl;
+  vector<pair<int,double>> vv;
   for (int i=0;i<(int)problems.size();i++) {
     double avg = 0;
     for (auto &p: scores[i]) avg += p;
     avg /= scores[i].size();
-    cerr << problems[i].id << ": " << avg << endl;
+    vv.emplace_back(problems[i].id, avg);
 
     gtot += avg / problems[i].source_length;
   }
+
+  sort(vv.begin(), vv.end());
+
+  for (auto &i: vv)
+    cerr << i.first << ": " << i.second << endl;
 
   cerr << "grand total: " << gtot << endl;
 
