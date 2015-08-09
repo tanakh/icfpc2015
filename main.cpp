@@ -363,11 +363,16 @@ pt get_init_pos(const problem &prob, const unit &u)
 
 vector<double> eparam;
 
+const int FN = 9;
+const int NUM_FEATURES = FN+3;
+
 double calc_score(const vector<vector<int>> &bd, const pt &last, int lines)
 {
   int w = bd[0].size(), h = bd.size();
 
-  double height = h, holes = 0, roofs = 0, hroofs = 0, sides = 0, hsides = 0;
+  double height = h; //, holes = 0, roofs = 0, hroofs = 0, sides = 0, hsides = 0;
+
+  double feat[FN] = {};
 
   for (int y = 0; y < h; y++) {
     for (int x = 0; x < w/2; x++) {
@@ -388,22 +393,23 @@ double calc_score(const vector<vector<int>> &bd, const pt &last, int lines)
         {-1, 1},
       };
 
-      int rcnt = 0, scnt = 0, tcnt = 0;
+      int pat = 0;
       for (int i = 0; i < 6; i++) {
         int cx = xx + vect[i][0];
         int cy = y + vect[i][1];
 
-        if (cx >= 0 && cx < w && cy >= 0 && cy < h && bd[cy][cx] == 0) continue;
-        if (i < 2) rcnt++;
-        if (i == 2 || i == 3) scnt++;
-        tcnt++;
+        if (!(cx >= 0 && cx < w && cy >= 0 && cy < h && bd[cy][cx] == 0)) continue;
+
+        pat |= (1 << i);
       }
 
-      if (rcnt == 1) hroofs++;
-      if (rcnt == 2) roofs++;
-      if (scnt == 1) hsides++;
-      if (scnt == 2) sides++;
-      if (tcnt == 6) holes++;
+      int f = 0;
+      f = f * 3 + ((pat>>0)&1) + ((pat>>1)&1);
+      f = f * 3 + ((pat>>2)&1) + ((pat>>3)&1);
+      // f = f * 3 + ((pat>>4)&1) + ((pat>>5)&1);
+      // f = f * 2 + (bd[y][xx] != 0);
+
+      feat[f]++;
     }
   }
 
@@ -413,23 +419,12 @@ double calc_score(const vector<vector<int>> &bd, const pt &last, int lines)
   // height /= h;
   // if (height >= 0.8) height = 1;
 
-  /*
-  // ret += height * 500;
-  ret += (double)last.imag() * 334;
-  ret += holes  * -500;
-  ret += roofs  * -400;
-  ret += hroofs * -300;
-  ret += sides  * -100;
-  ret += (double)(lines+1)*lines/2  * 500;
-  */
+  for (int i = 0; i < FN; i++)
+    ret += eparam[i] * feat[i];
 
-  ret += eparam[0] * height;
-  ret += eparam[1] * (double)last.imag();
-  ret += -eparam[2] * holes;
-  ret += -eparam[3] * roofs;
-  ret += -eparam[4] * hroofs;
-  ret += -eparam[5] * sides;
-  ret += eparam[6] * (double)(lines+1)*lines/2;
+  ret += eparam[FN + 0] * height * w;
+  ret += eparam[FN + 1] * (double)last.imag() * w;
+  ret += eparam[FN + 2] * (double)(lines+1)*lines/2 * w * h;
 
   return ret;
 }
@@ -531,7 +526,7 @@ struct candidate {
 // }
 
 void rec(const vector<vector<int>> &bd, const unit &u, const pt &pos, int rot,
-         vector<int> &hist, set<pair<pair<int,int>, int>> &ss, candidate &cand, int ls_old)
+         vector<int> &hist, set<pair<pair<int,int>, int>> &ss, candidate &cand, int ls_old, int prev)
 {
   auto key = make_pair(make_pair(pos.real(), pos.imag()), rot);
   if (ss.count(key)) return;
@@ -539,13 +534,22 @@ void rec(const vector<vector<int>> &bd, const unit &u, const pt &pos, int rot,
 
   int invalid = -1;
 
-  const int ord[] = {0, 1, 2, 3, 4, 5};
+  const int tbl[][6] = {
+    {1,0,2,3,4,5},
+    {2,1,0,3,4,5},
+    {0,1,2,3,4,5}
+  };
+
+  const int *ord = tbl[0];
+
+  if (prev == E) ord = tbl[1];
+  if (prev == SW) ord = tbl[2];
 
   // const int ord[] = {2, 3, 1, 0, 4, 5};
   // const int ord[] = {0, 1, 2, 3, 4, 5};
   // int ord[] = {0, 1, 2, 3, 4, 5};
-  //for (int i=0;i<6;i++)
-    //swap(ord[i], ord[i+rand()%(6-i)]);
+  // for (int i=0;i<6;i++)
+  //   swap(ord[i], ord[i+rand()%(6-i)]);
 
   for (int mov_ = 0; mov_ < 6; mov_++) {
     int mov = ord[mov_];
@@ -565,7 +569,7 @@ void rec(const vector<vector<int>> &bd, const unit &u, const pt &pos, int rot,
     }
 
     hist.push_back(mov);
-    rec(bd, u, npos, nrot, hist, ss, cand, ls_old);
+    rec(bd, u, npos, nrot, hist, ss, cand, ls_old, mov);
     hist.pop_back();
   }
 
@@ -656,7 +660,7 @@ pair<string, int> solve(const problem &prob, int seed, int tle, int mle, const v
     vector<int> hist;
     set<pair<pair<int,int>, int>> ss;
     candidate best;
-    rec(bd, u, pos, 0, hist, ss, best, ls_old);
+    rec(bd, u, pos, 0, hist, ss, best, ls_old, CW);
 
     bd = best.board;
     for (auto &m: best.moves)
@@ -677,19 +681,21 @@ pair<string, int> solve(const problem &prob, int seed, int tle, int mle, const v
   return make_pair(to_ans(moves), move_score + power_score(to_ans(moves)));
 }
 
-pair<string, int> annealing(const problem &p, int seed, int tle, int mle, const string &tag)
+pair<string, int> annealing(const problem &p, int seed, int tle, int mle, const string &tag,
+                            double init_temp, double temp_decay, int turns)
 {
   int best_score = -1;
   string best_move;
 
-  vector<double> pp(7);
-  for (int i = 0; i < 6; i++)
+  vector<double> pp(NUM_FEATURES);
+  for (int i = 0; i < (int)pp.size(); i++)
     pp[i] = rand() % 10000 / 10000.0 * 10 - 5;
   double score = -1;
 
-  double temp = 500;
-  for (int t = 0; t < 20000; t++, temp *= 0.999) {
-    if (t % 100 == 0) cerr << "turn: " << t << ": " << temp << endl;
+  double temp = init_temp;
+  for (int t = 0; t < turns; t++, temp *= temp_decay) {
+    if (t % 100 == 0) cerr << "turn: " << t << ": " << temp << ", " << score << endl;
+    if (temp < 1) temp = score / 10;
 
     auto bkup = pp;
     pp[rand() % pp.size()] = rand() % 10000 / 10000.0 * 10 - 5;
@@ -698,15 +704,16 @@ pair<string, int> annealing(const problem &p, int seed, int tle, int mle, const 
     if (score <= rr.second || (rand() % 10001 / 10000.0) <= exp((rr.second - score) / temp)) {
       score = rr.second;
 
+      // cerr << "### " << p.id << ", " << seed << ", " << t << ": " << score << endl;
       if (best_score < rr.second) {
         best_score = rr.second;
         best_move = rr.first;
 
-        cerr << "*** " << p.id << ", " << seed << ", " << t << ": " << best_score << endl;
-        cerr << "param[7] = [";
-        for (int i = 0; i < pp.size(); i++)
-          cerr << pp[i] << ", ";
-        cerr << "]" << endl;;
+        cerr << "*BEST* " << p.id << ", " << seed << ", " << t << ": " << best_score << endl;
+        // cerr << "param[] = [";
+        // for (int i = 0; i < pp.size(); i++)
+        //   cerr << pp[i] << ", ";
+        // cerr << "]" << endl;;
 
         {
           stringstream ss;
@@ -798,6 +805,10 @@ int main(int argc, char *argv[])
   int core = 1;
   bool anneal = false;
 
+  double init_temp;
+  double temp_decay;
+  int turns;
+
   vector<double> def_param {-2.016, 2.928, 4.761, 4.257, 1.862, -0.857, 1.512,};
 
   for (int i = 1; i < argc; ) {
@@ -836,7 +847,12 @@ int main(int argc, char *argv[])
     }
     else if (arg == "-a") {
       anneal = true;
-      i++;
+
+      istringstream iss(argv[i+1]);
+      char dmy;
+      iss >> init_temp >> dmy >> temp_decay >> dmy >> turns;
+
+      i += 2;
     }
   }
 
@@ -860,7 +876,7 @@ int main(int argc, char *argv[])
 
       auto sol =
         anneal ?
-        annealing(p, seed, tle, mle, tag) :
+        annealing(p, seed, tle, mle, tag, init_temp, temp_decay, turns) :
         solve(p, seed, tle, mle, def_param, true);
 
       if (!anneal) replay(p, seed, sol.first);
