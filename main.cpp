@@ -495,69 +495,177 @@ pt get_init_pos(const problem &prob, const unit &u)
 vector<double> eparam;
 
 const int FN = 9;
-const int NUM_FEATURES = FN+3;
+const int NUM_FEATURES = FN+1;
 
-double calc_score(const vector<vector<int>> &bd, const pt &last, int lines)
+const int adj6[6][2] = {
+  {-1, -1},
+  {1, -1},
+  {2, 0},
+  {-2, 0},
+  {1, 1},
+  {-1, 1},
+};
+
+double calc_score(vector<vector<int>> &bd,
+                  const pt &pos, const unit &u, int rot, int ls_old,
+                  const vector<int> &cmds)
 {
   int w = bd[0].size(), h = bd.size();
 
-  double height = h; //, holes = 0, roofs = 0, hroofs = 0, sides = 0, hsides = 0;
+  static vector<pt> units;
+  static vector<pt> pts;
+  units.clear();
+  pts.clear();
 
+  double height = h;
   double feat[FN] = {};
 
-  for (int y = 0; y < h; y++) {
-    for (int x = 0; x < w/2; x++) {
-      int xx = x*2 + y%2;
-      if (bd[y][xx] != 0) {
-        height = min(height, (double)y);
-      }
+  for (auto &c: u.members) {
+    auto d = rot_pivot(c + pos, u.pivot + pos, rot);
+    height = min(height, (double)d.imag());
 
-      if (bd[y][xx] != 0)
-        continue;
+    units.push_back(d);
+    pts.push_back(d);
+    for (int i = 0; i < 6; i++) {
+      int cx = d.real() + adj6[i][0];
+      int cy = d.imag() + adj6[i][1];
 
-      const int vect[][2] = {
-        {-1, -1},
-        {1, -1},
-        {2, 0},
-        {-2, 0},
-        {1, 1},
-        {-1, 1},
-      };
-
-      int pat = 0;
-      for (int i = 0; i < 6; i++) {
-        int cx = xx + vect[i][0];
-        int cy = y + vect[i][1];
-
-        if (!(cx >= 0 && cx < w && cy >= 0 && cy < h && bd[cy][cx] == 0)) continue;
-
-        pat |= (1 << i);
-      }
-
-      int f = 0;
-      f = f * 3 + ((pat>>0)&1) + ((pat>>1)&1);
-      f = f * 3 + ((pat>>2)&1) + ((pat>>3)&1);
-      // f = f * 3 + ((pat>>4)&1) + ((pat>>5)&1);
-      // f = f * 2 + (bd[y][xx] != 0);
-
-      feat[f]++;
+      if (!(cx >= 0 && cx < w && cy >= 0 && cy < h)) continue;
+      pts.push_back(pt(cx, cy));
     }
   }
 
-  double ret = 0;
+  for (auto &p: pts) {
+    int cx = p.real();
+    int cy = p.imag();
+    if (bd[cy][cx] & (1 << 8)) continue;
+    bd[cy][cx] |= (1 << 8);
 
-  // vlog() << height << ", " << holes << ", " << roofs << ", " << sides << endl;
-  // height /= h;
-  // if (height >= 0.8) height = 1;
+    if ((bd[cy][cx] & ((1<<8)-1)) != 0) continue;
+
+    int pat = 0;
+    for (int i = 0; i < 6; i++) {
+      int dx = cx + adj6[i][0];
+      int dy = cy + adj6[i][1];
+
+      if (!(dx >= 0 && dx < w && dy >= 0 && dy < h &&
+            (bd[dy][dx] & ((1<<8)-1)) == 0))
+        continue;
+
+      pat |= (1 << i);
+    }
+
+    int f = 0;
+    f = f * 3 + ((pat>>0)&1) + ((pat>>1)&1);
+    f = f * 3 + ((pat>>2)&1) + ((pat>>3)&1);
+    feat[f]++;
+  }
+
+  for (auto &p: pts)
+    bd[p.imag()][p.real()] &= ~(1 << 8);
+
+  for (auto &c: units)
+    bd[c.imag()][c.real()] = 1;
+
+  for (auto &p: pts) {
+    int cx = p.real();
+    int cy = p.imag();
+    if (bd[cy][cx] & (1 << 8)) continue;
+    bd[cy][cx] |= (1 << 8);
+
+    if ((bd[cy][cx] & ((1<<8)-1)) != 0) continue;
+
+    int pat = 0;
+    for (int i = 0; i < 6; i++) {
+      int dx = cx + adj6[i][0];
+      int dy = cy + adj6[i][1];
+
+      if (!(dx >= 0 && dx < w && dy >= 0 && dy < h &&
+            (bd[dy][dx] & ((1<<8)-1)) == 0))
+        continue;
+
+      pat |= (1 << i);
+    }
+
+    int f = 0;
+    f = f * 3 + ((pat>>0)&1) + ((pat>>1)&1);
+    f = f * 3 + ((pat>>2)&1) + ((pat>>3)&1);
+    feat[f]--;
+  }
+
+  for (auto &p: pts)
+    bd[p.imag()][p.real()] &= ~(1 << 8);
+
+  for (auto &c: units)
+    bd[c.imag()][c.real()] = 0;
+
+  double ret = 0;
 
   for (int i = 0; i < FN; i++)
     ret += eparam[i] * feat[i];
 
   ret += eparam[FN + 0] * height * w;
-  ret += eparam[FN + 1] * (double)last.imag() * w;
-  ret += eparam[FN + 2] * (double)(lines+1)*lines/2 * w * h;
 
   return ret;
+
+  // int w = bd[0].size(), h = bd.size();
+
+  // double height = h;
+
+  // for (int y = 0; y < h; y++) {
+  //   for (int x = 0; x < w/2; x++) {
+  //     int xx = x*2 + y%2;
+  //     if (bd[y][xx] != 0) {
+  //       height = min(height, (double)y);
+  //     }
+
+  //     if (bd[y][xx] != 0)
+  //       continue;
+
+  //     const int vect[][2] = {
+  //       {-1, -1},
+  //       {1, -1},
+  //       {2, 0},
+  //       {-2, 0},
+  //       {1, 1},
+  //       {-1, 1},
+  //     };
+
+  //     int pat = 0;
+  //     for (int i = 0; i < 6; i++) {
+  //       int cx = xx + vect[i][0];
+  //       int cy = y + vect[i][1];
+
+  //       if (!(cx >= 0 && cx < w && cy >= 0 && cy < h && bd[cy][cx] == 0)) continue;
+
+  //       pat |= (1 << i);
+  //     }
+
+  //     int f = 0;
+  //     f = f * 3 + ((pat>>0)&1) + ((pat>>1)&1);
+  //     f = f * 3 + ((pat>>2)&1) + ((pat>>3)&1);
+  //     // f = f * 3 + ((pat>>4)&1) + ((pat>>5)&1);
+  //     // f = f * 2 + (bd[y][xx] != 0);
+
+  //     feat[f]++;
+  //   }
+  // }
+
+  // double ret = 0;
+
+  // // vlog() << height << ", " << holes << ", " << roofs << ", " << sides << endl;
+  // // height /= h;
+  // // if (height >= 0.8) height = 1;
+
+  // for (int i = 0; i < FN; i++)
+  //   ret += eparam[i] * feat[i];
+
+  // ret += eparam[FN + 0] * height * w;
+  // ret += eparam[FN + 1] * (double)last.imag() * w;
+  // ret += eparam[FN + 2] * (double)(lines+1)*lines/2 * w * h;
+  // // ret += eparam[FN + 3] * (double)cmds.length();
+
+  // return ret;
 }
 
 string to_ans(const vector<int> &v)
@@ -600,61 +708,6 @@ struct candidate {
     return score < r.score;
   }
 };
-
-// candidate gen_cand(vector<vector<int>> bd, const unit &u, pt pos)
-// {
-//   vector<int> moves;
-//   double move_score = 0;
-//   int rot = 0;
-
-//   set<pair<pair<int,int>, int>> ss;
-
-//   for (;;) {
-//     int d = rand() % 6;
-
-//     pt prev = pos;
-//     int prot = rot;
-
-//     switch(d) {
-//     case W:   pos += pt(-2, 0); break;
-//     case E:   pos += pt(2, 0); break;
-//     case SW:  pos += pt(-1, 1); break;
-//     case SE:  pos += pt(1, 1); break;
-//     case CW:  rot = (rot + 1) % u.rot_max; break;
-//     case CCW: rot = (rot + u.rot_max - 1) % u.rot_max; break;
-//     }
-
-//     bool ok = check(bd, pos, u, rot);
-//     if (!ok && (d==CW||d==CCW)) {
-//       pos = prev;
-//       rot = prot;
-//       continue;
-//     }
-
-//     auto key = make_pair(pt2pair(pos), rot);
-//     if (ss.count(key)) {
-//       pos = prev;
-//       rot = prot;
-//       continue;
-//     }
-//     ss.insert(key);
-
-//     moves.push_back(d);
-
-//     if (!ok) {
-//       pos = prev;
-//       rot = prot;
-//       move_score += put_unit(bd, pos, u, rot);
-//       break;
-//     }
-//   }
-
-//   candidate ret;
-//   ret.moves = moves;
-//   ret.move_score = move_score;
-//   ret.board = bd;
-//   return ret;
-// }
 
 void rec(const vector<vector<int>> &bd, const unit &u, const pt &pos, int rot,
          vector<int> &hist, set<pair<pair<int,int>, int>> &ss, candidate &cand, int ls_old, int prev)
@@ -704,27 +757,24 @@ void rec(const vector<vector<int>> &bd, const unit &u, const pt &pos, int rot,
   }
 
   if (invalid >= 0) {
-    candidate tmp;
-    hist.push_back(invalid);
-    tmp.moves = hist;
-    hist.pop_back();
+    double tscore = calc_score(const_cast<vector<vector<int>>&>(bd), pos, u, rot, ls_old, hist);
 
-    vector<vector<int>> bdd = bd;
-    auto tt = put_unit(bdd, pos, u, rot, ls_old);
-    tmp.move_score = tt.first;
-    tmp.board = bdd;
+    if (tscore > cand.score) {
+      candidate tmp;
+      tmp.score = tscore;
 
-    pt upper = pt(0, 0x7fffffff);
-    for (auto &p: u.members) {
-      pt q = rot_pivot(p + pos, u.pivot + pos, rot);
-      if (q.imag() < upper.imag())
-        upper = q;
+      hist.push_back(invalid);
+      tmp.moves = hist;
+      hist.pop_back();
+
+      vector<vector<int>> bdd = bd;
+      auto tt = put_unit(bdd, pos, u, rot, ls_old);
+      tmp.move_score = tt.first;
+      tmp.board = bdd;
+      tmp.ls_old = tt.second;
+
+      cand = tmp;
     }
-
-    tmp.ls_old = tt.second;
-
-    tmp.score = calc_score(bdd, upper, tt.second);
-    cand = max(cand, tmp);
   }
 
   return;
@@ -746,8 +796,6 @@ vector<vector<int>> make_board(const problem &prob)
 
 int power_score(const string &cmds)
 {
-  // return 0;
-
   int ret = 0;
 
   for (auto &word: ppw) {
@@ -755,7 +803,7 @@ int power_score(const string &cmds)
     for (int i = 0; i < (int)cmds.size(); i++) {
       bool ok = true;
       for (int j = 0; j < (int)word.size(); j++) {
-        if (i + j < (int)cmds.size() && tolower(cmds[i+j]) != tolower(word[j])) {
+        if (!(i + j < (int)cmds.size() && tolower(cmds[i+j]) == tolower(word[j]))) {
           ok = false;
           break;
         }
@@ -784,7 +832,6 @@ pair<string, int> solve(const problem &prob, int seed, int tle, int mle, const v
 
   rng r(seed);
   for (int turn = 0; turn < prob.source_length; turn++) {
-    // vlog() << "turn: " << turn << endl;
     const unit &u = prob.units[r.get() % prob.units.size()];
     pt pos = get_init_pos(prob, u);
     if (!check(bd, pos, u, 0)) break;
@@ -976,6 +1023,16 @@ pair<string, int> ga(const problem &p, int seed, int tle, int mle, const string 
   return make_pair(best_move, best_score);
 }
 
+set<pair<int,int>> uposs(const unit &u, const pt &pos, int rot)
+{
+  set<pair<int,int>> ss;
+  for (auto &c: u.members) {
+    auto d = rot_pivot(c + pos, u.pivot + pos, rot);
+    ss.insert(make_pair(d.real(), d.imag()));
+  }
+  return ss;
+}
+
 void replay(const problem &prob, int seed, const string &moves)
 {
   vlog() << "replay:" << endl;
@@ -985,7 +1042,7 @@ void replay(const problem &prob, int seed, const string &moves)
   const char *p = moves.c_str();
   int move_score = 0;
 
-  for (int turn = 0; turn < prob.source_length; turn++) {
+  for (int turn = 0; turn < prob.source_length && *p; turn++) {
     const unit &u = prob.units[r.get() % prob.units.size()];
     pt pos = get_init_pos(prob, u);
     int rot = 0;
@@ -994,10 +1051,14 @@ void replay(const problem &prob, int seed, const string &moves)
     vlog() << "*POP*" << endl;
     print_board_(bd, pos, u, rot);
 
+    set<set<pair<int,int>>> prevs;
+    prevs.insert(uposs(u, pos, rot));
+
     for (;*p;) {
       pt npos = pos;
       int nrot = rot;
-      command mov = to_command(*p++);
+      char c = *p++;
+      command mov = to_command(c);
       switch(mov) {
       case W:   npos += pt(-2, 0); break;
       case E:   npos += pt(2, 0); break;
@@ -1006,14 +1067,22 @@ void replay(const problem &prob, int seed, const string &moves)
       case CW:  nrot = (nrot + 1) % u.rot_max; break;
       case CCW: nrot = (nrot + u.rot_max - 1) % u.rot_max; break;
       }
+
+      auto tt = uposs(u, npos, nrot);
+      if (prevs.count(tt)) {
+        vlog() << "ERROR: duplicate positions" << endl;
+        return;
+      }
+      prevs.insert(tt);
+
       if (check(bd, npos, u, nrot)) {
         pos = npos;
         rot = nrot;
-        vlog() << "cmd: " << show_command(mov) << endl;
+        vlog() << "cmd: " << show_command(mov) << "(" << c << ")" << endl;
         print_board_(bd, pos, u, rot);
       }
       else {
-        vlog() << "cmd: LOCK (" << show_command(mov) << ")" << endl;
+        vlog() << "cmd: LOCK (" << show_command(mov) << ", " << c << ")" << endl;
         move_score += put_unit(bd, pos, u, rot, 0).first;
         print_board(bd);
         break;
@@ -1026,6 +1095,9 @@ void replay(const problem &prob, int seed, const string &moves)
   vlog() << "move score: " << move_score << endl;
   vlog() << "power score: " << psc << endl;
   vlog() << "total score: " << move_score + psc << endl;
+
+  if (*p)
+    vlog() << "ERROR: sequence remains." << endl;
 }
 
 int main(int argc, char *argv[])
@@ -1049,7 +1121,12 @@ int main(int argc, char *argv[])
 
   bool gene = false;
 
-  vector<double> def_param {-2.016, 2.928, 4.761, 4.257, 1.862, -0.857, 1.512,};
+  bool rep = false;
+  int rep_id;
+  int rep_seed;
+  string rep_cmds;
+
+  vector<double> def_param {-2.016, 2.928, 4.761, 4.257, 1.862, -0.857, 1.512, 0, 0, 0};
 
   for (int i = 1; i < argc; ) {
     string arg = argv[i];
@@ -1098,6 +1175,22 @@ int main(int argc, char *argv[])
       gene = true;
       i++;
     }
+    else if (arg == "-r") {
+      rep = true;
+
+      istringstream iss(argv[i+1]);
+      char dmy;
+      iss >> rep_id >> dmy >> rep_seed >> dmy >> rep_cmds;
+
+      i+=2;
+    }
+  }
+
+  if (rep) {
+    ostringstream fn;
+    fn << "problems/problem_" << rep_id << ".json";
+    replay(read_problem(fn.str()), rep_seed, rep_cmds);
+    return 0;
   }
 
   vector<problem> problems;
