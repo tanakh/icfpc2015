@@ -681,6 +681,7 @@ struct candidate {
     score = -1e10;
   }
 
+  /*
   candidate(const candidate &r)
     : moves(r.moves)
     , move_score(r.move_score)
@@ -697,15 +698,19 @@ struct candidate {
     this->ls_old = r.ls_old;
     return *this;
   }
+  */
 
   vector<int> moves;
+  vector<int> prev_moves;
   int move_score;
+  int prev_score;
   int ls_old;
   vector<vector<int>> board;
   double score;
 
   bool operator<(const candidate &r) const {
-    return score < r.score;
+    if (score != r.score) return score < r.score;
+    return board < r.board;
   }
 };
 
@@ -757,7 +762,8 @@ void rec(const vector<vector<int>> &bd, const unit &u, const pt &pos, int rot,
   }
 
   if (invalid >= 0) {
-    double tscore = calc_score(const_cast<vector<vector<int>>&>(bd), pos, u, rot, ls_old, hist);
+    double tscore =
+      calc_score(const_cast<vector<vector<int>>&>(bd), pos, u, rot, ls_old, hist);
 
     if (tscore > cand.score) {
       candidate tmp;
@@ -775,6 +781,79 @@ void rec(const vector<vector<int>> &bd, const unit &u, const pt &pos, int rot,
 
       cand = tmp;
     }
+  }
+
+  return;
+}
+
+void rec_beam(const vector<vector<int>> &bd, const unit &u, const pt &pos, int rot,
+              vector<int> &hist, set<pair<pair<int,int>, int>> &ss,
+              multiset<candidate> &cand, int ls_old, int prev,
+              int beam_width, int prev_score, const vector<int> &prev_moves)
+{
+  auto key = make_pair(make_pair(pos.real(), pos.imag()), rot);
+  if (ss.count(key)) return;
+  ss.insert(key);
+
+  int invalid = -1;
+
+  static const int tbl[][6] = {
+    {1,0,2,3,4,5},
+    {2,1,0,3,4,5},
+    {0,1,2,3,4,5}
+  };
+
+  const int *ord = tbl[2];
+
+  for (int mov_ = 0; mov_ < 6; mov_++) {
+    int mov = ord[mov_];
+    pt npos = pos;
+    int nrot = rot;
+    switch(mov) {
+    case W:   npos += pt(-2, 0); break;
+    case E:   npos += pt(2, 0); break;
+    case SW:  npos += pt(-1, 1); break;
+    case SE:  npos += pt(1, 1); break;
+    case CW:  nrot = (nrot + 1) % u.rot_max; break;
+    case CCW: nrot = (nrot + u.rot_max - 1) % u.rot_max; break;
+    }
+    if (!check(bd, npos, u, nrot)) {
+      invalid = mov;
+      continue;
+    }
+
+    hist.push_back(mov);
+    rec_beam(bd, u, npos, nrot, hist, ss, cand, ls_old, mov, beam_width, prev_score, prev_moves);
+    hist.pop_back();
+  }
+
+  if (invalid >= 0) {
+    double tscore =
+      prev_score +
+      calc_score(const_cast<vector<vector<int>>&>(bd), pos, u, rot, ls_old, hist);
+
+    if ((int)cand.size() >= beam_width) {
+      if (cand.begin()->score >= tscore) return;
+      cand.erase(cand.begin());
+    }
+
+    candidate tmp;
+    tmp.score = tscore;
+
+    hist.push_back(invalid);
+    tmp.moves = hist;
+    hist.pop_back();
+
+    vector<vector<int>> bdd = bd;
+    auto tt = put_unit(bdd, pos, u, rot, ls_old);
+    tmp.move_score = tt.first;
+    tmp.board = bdd;
+    tmp.ls_old = tt.second;
+
+    tmp.prev_score = prev_score;
+    tmp.prev_moves = prev_moves;
+
+    cand.insert(tmp);
   }
 
   return;
@@ -816,6 +895,22 @@ int power_score(const string &cmds)
   }
 
   return ret;
+}
+
+void output_solution(int problem_id, int seed, int score, const string &moves, const string &tag)
+{
+  stringstream ss;
+  ss << "out-full/" << problem_id << "-" << seed << "-" << score << ".json";
+  ofstream ofs(ss.str().c_str());
+
+  object o;
+  o["problemId"] = value((int64_t)problem_id);
+  o["seed"] = value((int64_t)seed);
+  if (tag != "")
+    o["tag"] = value(tag);
+  o["solution"] = value(moves);
+
+  ofs << value(o) << endl;
 }
 
 pair<string, int> solve(const problem &prob, int seed, int tle, int mle, const vector<double> &param, bool progress)
@@ -860,21 +955,63 @@ pair<string, int> solve(const problem &prob, int seed, int tle, int mle, const v
   return make_pair(to_ans(moves), move_score + power_score(to_ans(moves)));
 }
 
-void output_solution(int problem_id, int seed, int score, const string &moves, const string &tag)
+pair<string, int> beam_search(const problem &prob, int seed, int tle, int mle,
+                              const vector<double> &param)
 {
-  stringstream ss;
-  ss << "out-full/" << problem_id << "-" << seed << "-" << score << ".json";
-  ofstream ofs(ss.str().c_str());
+  eparam = param;
+  const int width = 5;
 
-  object o;
-  o["problemId"] = value((int64_t)problem_id);
-  o["seed"] = value((int64_t)seed);
-  if (tag != "")
-    o["tag"] = value(tag);
-  o["solution"] = value(moves);
+  map<vector<vector<int>>, pair<int,vector<int>>> beam;
+  {
+    auto bd = make_board(prob);
+    beam[bd] = make_pair(0, vector<int>());
+  }
 
-  ofs << value(o) << endl;
+  int best_score = -1;
+  vector<int> best_move;
+
+  rng r(seed);
+  for (int turn = 0; turn < prob.source_length; turn++) {
+    cerr << "turn: [" << turn << "/" << prob.source_length << "] " << beam.size() << endl;
+
+    const unit &u = prob.units[r.get() % prob.units.size()];
+    pt pos = get_init_pos(prob, u);
+
+    multiset<candidate> bests;
+    for (auto &cur_bd: beam) {
+      if (!check(cur_bd.first, pos, u, 0)) break;
+
+      vector<int> hist;
+      set<pair<pair<int,int>, int>> ss;
+
+      rec_beam(cur_bd.first, u, pos, 0, hist, ss, bests, 0, CW, width,
+               cur_bd.second.first, cur_bd.second.second);
+    }
+
+    map<vector<vector<int>>, pair<int,vector<int>>> next_beam;
+    // cerr << "BESTS: size = " << bests.size() << endl;
+    for (auto &it: bests) {
+      // cerr << "BESTS: " << it.score << ", " << to_ans(it.moves) << endl;
+
+      auto moves = it.prev_moves;
+      for (auto &m: it.moves)
+        moves.push_back(m);
+      auto move_score = it.prev_score;
+      move_score += it.move_score;
+      next_beam[it.board] = make_pair(move_score, moves);
+
+      if (move_score > best_score) {
+        // cerr << "*** " << best_score << endl;
+        best_score = move_score;
+        best_move = moves;
+      }
+    }
+    beam = next_beam;
+  }
+
+  return make_pair(to_ans(best_move), best_score);
 }
+
 
 pair<string, int> annealing(const problem &p, int seed, int tle, int mle, const string &tag,
                             double init_temp, double temp_decay, int rounds)
@@ -919,10 +1056,10 @@ pair<string, int> annealing(const problem &p, int seed, int tle, int mle, const 
 
         cerr << "*BEST* " << p.id << "-" << seed << ", round " << t << ": " << best_score
              << "                      " << endl;
-        // cerr << "param[] = [";
-        // for (int i = 0; i < pp.size(); i++)
-        //   cerr << pp[i] << ", ";
-        // cerr << "]" << endl;;
+        cerr << "param[] = [";
+        for (int i = 0; i < (int)pp.size(); i++)
+          cerr << pp[i] << ", ";
+        cerr << "]" << endl;;
 
         output_solution(p.id, seed, best_score, best_move, tag);
       }
@@ -1023,14 +1160,14 @@ pair<string, int> ga(const problem &p, int seed, int tle, int mle, const string 
   return make_pair(best_move, best_score);
 }
 
-set<pair<int,int>> uposs(const unit &u, const pt &pos, int rot)
+pair<pair<int,int>, set<pair<int,int>>> uposs(const unit &u, const pt &pos, int rot)
 {
   set<pair<int,int>> ss;
   for (auto &c: u.members) {
     auto d = rot_pivot(c + pos, u.pivot + pos, rot);
     ss.insert(make_pair(d.real(), d.imag()));
   }
-  return ss;
+  return make_pair(pt2pair(u.pivot + pos), ss);
 }
 
 void replay(const problem &prob, int seed, const string &moves)
@@ -1051,7 +1188,7 @@ void replay(const problem &prob, int seed, const string &moves)
     vlog() << "*POP*" << endl;
     print_board_(bd, pos, u, rot);
 
-    set<set<pair<int,int>>> prevs;
+    set<pair<pair<int,int>, set<pair<int,int>>>> prevs;
     prevs.insert(uposs(u, pos, rot));
 
     for (;*p;) {
@@ -1070,7 +1207,7 @@ void replay(const problem &prob, int seed, const string &moves)
 
       auto tt = uposs(u, npos, nrot);
       if (prevs.count(tt)) {
-        vlog() << "ERROR: duplicate positions" << endl;
+        vlog() << "ERROR: duplicate positions " << show_command(mov) << "(" << c << ")" << endl;
         return;
       }
       prevs.insert(tt);
@@ -1104,6 +1241,9 @@ int main(int argc, char *argv[])
 {
   ppw.insert("ei!");
   ppw.insert("yuggoth");
+  ppw.insert("r'lyeh");
+  ppw.insert("tsathoggua");
+  ppw.insert("planet 10");
 
   // srand(time(NULL));
   init_genrand(time(NULL));
@@ -1126,7 +1266,9 @@ int main(int argc, char *argv[])
   int rep_seed;
   string rep_cmds;
 
-  vector<double> def_param {-2.016, 2.928, 4.761, 4.257, 1.862, -0.857, 1.512, 0, 0, 0};
+  bool beam = false;
+
+  vector<double> def_param {4.17089, 1.37104, 1.36987, 1.4519, 0.139807, 3.30003, 1.5467, 1.16281, 0.395305, 1.95616 };
 
   for (int i = 1; i < argc; ) {
     string arg = argv[i];
@@ -1175,6 +1317,10 @@ int main(int argc, char *argv[])
       gene = true;
       i++;
     }
+    else if (arg == "-b") {
+      beam = true;
+      i++;
+    }
     else if (arg == "-r") {
       rep = true;
 
@@ -1215,6 +1361,7 @@ int main(int argc, char *argv[])
       auto sol =
         anneal ? annealing(p, seed, tle, mle, tag, init_temp, temp_decay, turns):
         gene ? ga(p, seed, tle, mle, tag):
+        beam ? beam_search(p, seed, tle, mle, def_param):
         solve(p, seed, tle, mle, def_param, true);
 
       if (!anneal) replay(p, seed, sol.first);
