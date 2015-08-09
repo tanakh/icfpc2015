@@ -682,7 +682,7 @@ pair<string, int> solve(const problem &prob, int seed, int tle, int mle, const v
 }
 
 pair<string, int> annealing(const problem &p, int seed, int tle, int mle, const string &tag,
-                            double init_temp, double temp_decay, int turns)
+                            double init_temp, double temp_decay, int rounds)
 {
   int best_score = -1;
   string best_move;
@@ -693,8 +693,11 @@ pair<string, int> annealing(const problem &p, int seed, int tle, int mle, const 
   double score = -1;
 
   double temp = init_temp;
-  for (int t = 0; t < turns; t++, temp *= temp_decay) {
-    if (t % 100 == 0) cerr << "turn: " << t << ": " << temp << ", " << score << endl;
+  for (int t = 0; t < rounds; t++, temp *= temp_decay) {
+    if (t % 10 == 0)
+      cerr << "round: [" << t << "/" << rounds << "]: "
+           << temp << ", " << score << "        \r" << flush;
+
     if (temp < 1) temp = score / 10;
 
     auto bkup = pp;
@@ -709,7 +712,8 @@ pair<string, int> annealing(const problem &p, int seed, int tle, int mle, const 
         best_score = rr.second;
         best_move = rr.first;
 
-        cerr << "*BEST* " << p.id << ", " << seed << ", " << t << ": " << best_score << endl;
+        cerr << "*BEST* " << p.id << ", " << seed << ", " << t << ": " << best_score
+             << "                      " << endl;
         // cerr << "param[] = [";
         // for (int i = 0; i < pp.size(); i++)
         //   cerr << pp[i] << ", ";
@@ -737,6 +741,65 @@ pair<string, int> annealing(const problem &p, int seed, int tle, int mle, const 
   }
 
   return make_pair(best_move, best_score);
+}
+
+pair<string, int> ga(const problem &p, int seed, int tle, int mle, const string &tag)
+{
+  // int best_score = -1;
+  // string best_move;
+
+  // vector<double> pp(NUM_FEATURES);
+  // for (int i = 0; i < (int)pp.size(); i++)
+  //   pp[i] = rand() % 10000 / 10000.0 * 10 - 5;
+  // double score = -1;
+
+  // double temp = init_temp;
+  // for (int t = 0; t < rounds; t++, temp *= temp_decay) {
+  //   if (t % 10 == 0) cerr << "round: " << t << ": " << temp << ", " << score << "\r" << flush;
+
+  //   if (temp < 1) temp = score / 10;
+
+  //   auto bkup = pp;
+  //   pp[rand() % pp.size()] = rand() % 10000 / 10000.0 * 10 - 5;
+
+  //   auto rr = solve(p, seed, tle, mle, pp, false);
+  //   if (score <= rr.second || (rand() % 10001 / 10000.0) <= exp((rr.second - score) / temp)) {
+  //     score = rr.second;
+
+  //     // cerr << "### " << p.id << ", " << seed << ", " << t << ": " << score << endl;
+  //     if (best_score < rr.second) {
+  //       best_score = rr.second;
+  //       best_move = rr.first;
+
+  //       cerr << "*BEST* " << p.id << ", " << seed << ", " << t << ": " << best_score
+  //            << "          " << endl;
+  //       // cerr << "param[] = [";
+  //       // for (int i = 0; i < pp.size(); i++)
+  //       //   cerr << pp[i] << ", ";
+  //       // cerr << "]" << endl;;
+
+  //       {
+  //         stringstream ss;
+  //         ss << "out-full/" << p.id << "-" << seed << "-" << best_score << ".json";
+  //         ofstream ofs(ss.str().c_str());
+
+  //         object o;
+  //         o["problemId"] = value((int64_t)p.id);
+  //         o["seed"] = value((int64_t)seed);
+  //         if (tag != "")
+  //           o["tag"] = value(tag);
+  //         o["solution"] = value(best_move);
+
+  //         ofs << value(o) << endl;
+  //       }
+  //     }
+  //   }
+  //   else {
+  //     pp = bkup;
+  //   }
+  // }
+
+  // return make_pair(best_move, best_score);
 }
 
 void replay(const problem &prob, int seed, const string &moves)
@@ -868,11 +931,11 @@ int main(int argc, char *argv[])
   vector<vector<int>> scores;
   for (auto &p: problems) {
     vector<int> ss;
-    cerr << p.id << ", " << p.width << "x" << p.height << endl;
+    cerr << "\n" << "problem: " << p.id << ": " << p.width << "x" << p.height << endl;
 
     int ttt = 0;
     for (auto &seed: p.source_seeds) {
-      cerr << p.id << " [" << ++ttt << "/" << p.source_seeds.size() << "]" << endl;
+      cerr << "\n" << p.id << " [" << ++ttt << "/" << p.source_seeds.size() << "]" << endl;
 
       auto sol =
         anneal ?
