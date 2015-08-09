@@ -315,9 +315,9 @@ char to_char(command m) {
   case W:   c = '!'; break;
   case E:   c = 'e'; break;
   case SW:  c = 'i'; break;
-  case SE:  c = '5'; break;
-  case CW:  c = '1'; break;
-  case CCW: c = 'x'; break;
+  case SE:  c = 'l'; break;
+  case CW:  c = 'd'; break;
+  case CCW: c = 'k'; break;
   }
   return c;
 }
@@ -665,22 +665,21 @@ void rec(const vector<vector<int>> &bd, const unit &u, const pt &pos, int rot,
 
   int invalid = -1;
 
-  const int tbl[][6] = {
+  static const int tbl[][6] = {
     {1,0,2,3,4,5},
     {2,1,0,3,4,5},
     {0,1,2,3,4,5}
   };
 
-  const int *ord = tbl[0];
+  const int *ord = tbl[2];
 
-  if (prev == E) ord = tbl[1];
-  if (prev == SW) ord = tbl[2];
+  // const int *ord = tbl[0];
+  // if (prev == E) ord = tbl[1];
+  // if (prev == SW) ord = tbl[2];
 
-  // const int ord[] = {2, 3, 1, 0, 4, 5};
-  // const int ord[] = {0, 1, 2, 3, 4, 5};
   // int ord[] = {0, 1, 2, 3, 4, 5};
-  // for (int i=0;i<6;i++)
-  //   swap(ord[i], ord[i+rand()%(6-i)]);
+  // for (int i = 0; i < 6; i++)
+  //   swap(ord[i], ord[i+genrand_int31()%(6-i)]);
 
   for (int mov_ = 0; mov_ < 6; mov_++) {
     int mov = ord[mov_];
@@ -747,6 +746,8 @@ vector<vector<int>> make_board(const problem &prob)
 
 int power_score(const string &cmds)
 {
+  // return 0;
+
   int ret = 0;
 
   for (auto &word: ppw) {
@@ -812,6 +813,22 @@ pair<string, int> solve(const problem &prob, int seed, int tle, int mle, const v
   return make_pair(to_ans(moves), move_score + power_score(to_ans(moves)));
 }
 
+void output_solution(int problem_id, int seed, int score, const string &moves, const string &tag)
+{
+  stringstream ss;
+  ss << "out-full/" << problem_id << "-" << seed << "-" << score << ".json";
+  ofstream ofs(ss.str().c_str());
+
+  object o;
+  o["problemId"] = value((int64_t)problem_id);
+  o["seed"] = value((int64_t)seed);
+  if (tag != "")
+    o["tag"] = value(tag);
+  o["solution"] = value(moves);
+
+  ofs << value(o) << endl;
+}
+
 pair<string, int> annealing(const problem &p, int seed, int tle, int mle, const string &tag,
                             double init_temp, double temp_decay, int rounds)
 {
@@ -820,7 +837,7 @@ pair<string, int> annealing(const problem &p, int seed, int tle, int mle, const 
 
   vector<double> pp(NUM_FEATURES);
   for (int i = 0; i < (int)pp.size(); i++)
-    pp[i] = genrand_real1();
+    pp[i] = genrand_real1() - 0.5;
   double score = -1;
 
   double temp = init_temp;
@@ -835,14 +852,20 @@ pair<string, int> annealing(const problem &p, int seed, int tle, int mle, const 
     }
 
     auto bkup = pp;
-    pp[genrand_int31() % pp.size()] = genrand_real1();
+
+    if (genrand_int31() % 2 == 0) {
+      pp[genrand_int31() % pp.size()] = genrand_real1() - 0.5;
+    }
+    else {
+      // pp[genrand_int31() % pp.size()] *= genrand_real1() * 0.5 - 0.25 + 1.0;
+      pp[genrand_int31() % pp.size()] = genrand_real1() - 0.5;
+    }
 
     auto rr = solve(p, seed, tle, mle, pp, false);
     if (score <= rr.second ||
         genrand_real2() <= exp((rr.second - score) / temp)) {
       score = rr.second;
 
-      // cerr << "### " << p.id << ", " << seed << ", " << t << ": " << score << endl;
       if (best_score < rr.second) {
         best_score = rr.second;
         best_move = rr.first;
@@ -854,20 +877,7 @@ pair<string, int> annealing(const problem &p, int seed, int tle, int mle, const 
         //   cerr << pp[i] << ", ";
         // cerr << "]" << endl;;
 
-        {
-          stringstream ss;
-          ss << "out-full/" << p.id << "-" << seed << "-" << best_score << ".json";
-          ofstream ofs(ss.str().c_str());
-
-          object o;
-          o["problemId"] = value((int64_t)p.id);
-          o["seed"] = value((int64_t)seed);
-          if (tag != "")
-            o["tag"] = value(tag);
-          o["solution"] = value(best_move);
-
-          ofs << value(o) << endl;
-        }
+        output_solution(p.id, seed, best_score, best_move, tag);
       }
     }
     else {
@@ -878,63 +888,92 @@ pair<string, int> annealing(const problem &p, int seed, int tle, int mle, const 
   return make_pair(best_move, best_score);
 }
 
+vector<double> select(vector<pair<pair<int, string>, vector<double>>> &ord)
+{
+  double total_adapt = 0;
+  for (auto &c: ord)
+    total_adapt += pow(log((double)c.first.first), 2);
+
+  for (auto &c: ord) {
+    double adp = pow(log((double)c.first.first), 2);
+    if (genrand_real1() < (adp/total_adapt))
+      return c.second;
+    total_adapt -= adp;
+  }
+
+  return ord[genrand_int31() % ord.size()].second;
+}
+
 pair<string, int> ga(const problem &p, int seed, int tle, int mle, const string &tag)
 {
-  // int best_score = -1;
-  // string best_move;
+  int best_score = -1;
+  string best_move;
 
-  // vector<double> pp(NUM_FEATURES);
-  // for (int i = 0; i < (int)pp.size(); i++)
-  //   pp[i] = rand() % 10000 / 10000.0 * 10 - 5;
-  // double score = -1;
+  int num_cands = 500;
+  vector<vector<double>> cands;
 
-  // double temp = init_temp;
-  // for (int t = 0; t < rounds; t++, temp *= temp_decay) {
-  //   if (t % 10 == 0) cerr << "round: " << t << ": " << temp << ", " << score << "\r" << flush;
+  for (int i = 0; i < num_cands; i++) {
+    vector<double> pp(NUM_FEATURES);
+    for (int i = 0; i < (int)pp.size(); i++)
+      pp[i] = genrand_real1();
+    cands.push_back(pp);
+  }
 
-  //   if (temp < 1) temp = score / 10;
+  for (int gen = 0; gen < 10000; gen++) {
+    vector<pair<pair<int, string>, vector<double>>> ord;
+    for (auto &ncand: cands) {
+      auto rr = solve(p, seed, tle, mle, ncand, false);
+      ord.emplace_back(make_pair(rr.second, rr.first), ncand);
+    }
 
-  //   auto bkup = pp;
-  //   pp[rand() % pp.size()] = rand() % 10000 / 10000.0 * 10 - 5;
+    int cur_best = -1, cur_best_ix = 0;
+    for (int i = 0; i < num_cands; i++) {
+      if (ord[i].first.first > cur_best) {
+        cur_best = ord[i].first.first;
+        cur_best_ix = i;
+      }
+    }
+    cerr << "GEN: " << gen << ", score = " << cur_best << endl;
 
-  //   auto rr = solve(p, seed, tle, mle, pp, false);
-  //   if (score <= rr.second || (rand() % 10001 / 10000.0) <= exp((rr.second - score) / temp)) {
-  //     score = rr.second;
+    if (best_score < cur_best) {
+      best_score = ord[cur_best_ix].first.first;
+      best_move = ord[cur_best_ix].first.second;
 
-  //     // cerr << "### " << p.id << ", " << seed << ", " << t << ": " << score << endl;
-  //     if (best_score < rr.second) {
-  //       best_score = rr.second;
-  //       best_move = rr.first;
+      cerr << "*BEST* " << p.id << "-" << seed << ": " << best_score << endl;
+      output_solution(p.id, seed, best_score, best_move, tag);
+    }
 
-  //       cerr << "*BEST* " << p.id << ", " << seed << ", " << t << ": " << best_score
-  //            << "          " << endl;
-  //       // cerr << "param[] = [";
-  //       // for (int i = 0; i < pp.size(); i++)
-  //       //   cerr << pp[i] << ", ";
-  //       // cerr << "]" << endl;;
+    vector<vector<double>> next_cands;
 
-  //       {
-  //         stringstream ss;
-  //         ss << "out-full/" << p.id << "-" << seed << "-" << best_score << ".json";
-  //         ofstream ofs(ss.str().c_str());
+    while ((int)next_cands.size() < num_cands) {
+      double x = genrand_real1();
 
-  //         object o;
-  //         o["problemId"] = value((int64_t)p.id);
-  //         o["seed"] = value((int64_t)seed);
-  //         if (tag != "")
-  //           o["tag"] = value(tag);
-  //         o["solution"] = value(best_move);
+      if (x < 0.1) {
+        next_cands.push_back(select(ord));
+      }
+      else if (x < 0.99) {
+        if (num_cands - next_cands.size() < 2) continue;
 
-  //         ofs << value(o) << endl;
-  //       }
-  //     }
-  //   }
-  //   else {
-  //     pp = bkup;
-  //   }
-  // }
+        vector<double> sa = select(ord);
+        vector<double> sb = select(ord);
 
-  // return make_pair(best_move, best_score);
+        for (int i = 0; i < (int)sa.size(); i++) {
+          if (genrand_real1() < 0.5)
+            swap(sa[i], sb[i]);
+        }
+        next_cands.push_back(sa);
+        next_cands.push_back(sb);
+      }
+      else {
+        vector<double> sa = select(ord);
+        sa[genrand_int31()%sa.size()] = genrand_real1();
+      }
+    }
+
+    cands = next_cands;
+  }
+
+  return make_pair(best_move, best_score);
 }
 
 void replay(const problem &prob, int seed, const string &moves)
@@ -1002,11 +1041,13 @@ int main(int argc, char *argv[])
   int tle = -1;
   int mle = -1;
   int core = 1;
-  bool anneal = false;
 
+  bool anneal = false;
   double init_temp;
   double temp_decay;
   int turns;
+
+  bool gene = false;
 
   vector<double> def_param {-2.016, 2.928, 4.761, 4.257, 1.862, -0.857, 1.512,};
 
@@ -1053,6 +1094,10 @@ int main(int argc, char *argv[])
 
       i += 2;
     }
+    else if (arg == "-ga") {
+      gene = true;
+      i++;
+    }
   }
 
   vector<problem> problems;
@@ -1074,8 +1119,8 @@ int main(int argc, char *argv[])
       cerr << "\n" << p.id << " [" << ++ttt << "/" << p.source_seeds.size() << "]" << endl;
 
       auto sol =
-        anneal ?
-        annealing(p, seed, tle, mle, tag, init_temp, temp_decay, turns) :
+        anneal ? annealing(p, seed, tle, mle, tag, init_temp, temp_decay, turns):
+        gene ? ga(p, seed, tle, mle, tag):
         solve(p, seed, tle, mle, def_param, true);
 
       if (!anneal) replay(p, seed, sol.first);
