@@ -904,8 +904,8 @@ pair<string, int> annealing(const problem &p, int seed, int tle, int mle, const 
       pp[genrand_int31() % pp.size()] = genrand_real1() - 0.5;
     }
     else {
-      // pp[genrand_int31() % pp.size()] *= genrand_real1() * 0.5 - 0.25 + 1.0;
-      pp[genrand_int31() % pp.size()] = genrand_real1() - 0.5;
+      pp[genrand_int31() % pp.size()] += genrand_real1() * 0.5 - 0.25 + 1.0;
+      // pp[genrand_int31() % pp.size()] = genrand_real1() - 0.5;
     }
 
     auto rr = solve(p, seed, tle, mle, pp, false);
@@ -956,13 +956,13 @@ pair<string, int> ga(const problem &p, int seed, int tle, int mle, const string 
   int best_score = -1;
   string best_move;
 
-  int num_cands = 500;
+  int num_cands = 10;
   vector<vector<double>> cands;
 
   for (int i = 0; i < num_cands; i++) {
     vector<double> pp(NUM_FEATURES);
     for (int i = 0; i < (int)pp.size(); i++)
-      pp[i] = genrand_real1();
+      pp[i] = genrand_real1() - 0.5;
     cands.push_back(pp);
   }
 
@@ -998,7 +998,7 @@ pair<string, int> ga(const problem &p, int seed, int tle, int mle, const string 
       if (x < 0.1) {
         next_cands.push_back(select(ord));
       }
-      else if (x < 0.99) {
+      else if (x < 0.97) {
         if (num_cands - next_cands.size() < 2) continue;
 
         vector<double> sa = select(ord);
@@ -1013,7 +1013,7 @@ pair<string, int> ga(const problem &p, int seed, int tle, int mle, const string 
       }
       else {
         vector<double> sa = select(ord);
-        sa[genrand_int31()%sa.size()] = genrand_real1();
+        sa[genrand_int31()%sa.size()] = genrand_real1() - 0.5;
       }
     }
 
@@ -1180,7 +1180,8 @@ int main(int argc, char *argv[])
 
       istringstream iss(argv[i+1]);
       char dmy;
-      iss >> rep_id >> dmy >> rep_seed >> dmy >> rep_cmds;
+      iss >> rep_id >> dmy >> rep_seed >> dmy;
+      getline(iss, rep_cmds);
 
       i+=2;
     }
