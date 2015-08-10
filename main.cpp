@@ -304,7 +304,7 @@ enum command {
 
 char to_char(command m) {
   switch (m) {
-  case W:   return "p'!.03"[genrand_int31()%2];
+  case W:   return "p'!.03"[genrand_int31()%1];
   case E:   return "bcefy2"[genrand_int31()%5];
   case SW:  return "aghij4"[genrand_int31()%5];
   case SE:  return "lmno 5"[genrand_int31()%4];
@@ -1403,6 +1403,8 @@ int main(int argc, char *argv[])
         solve(p, seed, tle, mle, def_param, true);
 
       if (!anneal) replay(p, seed, sol.first);
+
+      output_solution(p.id, seed, sol.second, sol.first, tag);
 
       cerr << "score: " << sol.second << endl;
 
