@@ -1280,6 +1280,8 @@ int main(int argc, char *argv[])
   ppw.insert("r'lyeh");
   ppw.insert("tsathoggua");
   ppw.insert("planet 10");
+  ppw.insert("YogSothoth");
+  ppw.insert("John Bigboote");
 
   // srand(time(NULL));
   init_genrand(time(NULL));
