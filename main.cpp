@@ -303,23 +303,14 @@ enum command {
 };
 
 char to_char(command m) {
-  char c;
   switch (m) {
-  // case W:   c = 'p'; break;
-  // case E:   c = 'b'; break;
-  // case SW:  c = 'a'; break;
-  // case SE:  c = 'l'; break;
-  // case CW:  c = 'd'; break;
-  // case CCW: c = 'k'; break;
-
-  case W:   c = '!'; break;
-  case E:   c = 'e'; break;
-  case SW:  c = 'i'; break;
-  case SE:  c = 'l'; break;
-  case CW:  c = 'd'; break;
-  case CCW: c = 'k'; break;
+  case W:   return "p'!.03"[genrand_int31()%2];
+  case E:   return "bcefy2"[genrand_int31()%5];
+  case SW:  return "aghij4"[genrand_int31()%5];
+  case SE:  return "lmno 5"[genrand_int31()%4];
+  case CW:  return "dqrvz1"[genrand_int31()%5];
+  case CCW: return "kstuwx"[genrand_int31()%6];
   }
-  return c;
 }
 
 string show_command(command m) {
@@ -671,8 +662,36 @@ double calc_score(vector<vector<int>> &bd,
 string to_ans(const vector<int> &v)
 {
   string ret;
-  for (auto &m: v)
-    ret += to_char((command)m);
+
+  // for (int i = 0; i < (int)v.size(); i++) {
+  //   ret += to_char((command)v[i]);
+  // }
+
+  // return ret;
+
+  for (int i = 0; i < (int)v.size(); ) {
+    bool done = false;
+    for (auto &w: ppw) {
+      bool ok = true;
+      for (int j = 0; j < (int)w.size(); j++) {
+        if (!(i+j<(int)v.size() && v[i+j] == to_command(w[j]))) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) {
+        ret += w;
+        i += w.size();
+        done = true;
+        break;
+      }
+    }
+    if (!done) {
+      ret += to_char((command)v[i]);
+      i++;
+    }
+  }
+
   return ret;
 }
 
@@ -726,10 +745,12 @@ void rec(const vector<vector<int>> &bd, const unit &u, const pt &pos, int rot,
   static const int tbl[][6] = {
     {1,0,2,3,4,5},
     {2,1,0,3,4,5},
-    {0,1,2,3,4,5}
+    {0,1,2,3,4,5},
+
+    {0,1,4,5,2,3},
   };
 
-  const int *ord = tbl[2];
+  const int *ord = tbl[3];
 
   // const int *ord = tbl[0];
   // if (prev == E) ord = tbl[1];
@@ -800,10 +821,15 @@ void rec_beam(const vector<vector<int>> &bd, const unit &u, const pt &pos, int r
   static const int tbl[][6] = {
     {1,0,2,3,4,5},
     {2,1,0,3,4,5},
-    {0,1,2,3,4,5}
+    {0,1,2,3,4,5},
+    {0,1,2,4,5,3},
   };
+  const int *ord = tbl[3];
 
-  const int *ord = tbl[2];
+
+  // int ord[] = {0, 1, 2, 3, 4, 5};
+  // for (int i = 0; i < 6; i++)
+  //   swap(ord[i], ord[i+genrand_int31()%(6-i)]);
 
   for (int mov_ = 0; mov_ < 6; mov_++) {
     int mov = ord[mov_];
@@ -910,7 +936,9 @@ void output_solution(int problem_id, int seed, int score, const string &moves, c
     o["tag"] = value(tag);
   o["solution"] = value(moves);
 
+  ofs << "[" << endl;
   ofs << value(o) << endl;
+  ofs << "]" << endl;
 }
 
 pair<string, int> solve(const problem &prob, int seed, int tle, int mle, const vector<double> &param, bool progress)
@@ -952,14 +980,14 @@ pair<string, int> solve(const problem &prob, int seed, int tle, int mle, const v
     print_board(bd);
   }
 
-  return make_pair(to_ans(moves), move_score + power_score(to_ans(moves)));
+  auto ms = to_ans(moves);
+  return make_pair(ms, move_score + power_score(ms));
 }
 
 pair<string, int> beam_search(const problem &prob, int seed, int tle, int mle,
-                              const vector<double> &param)
+                              const vector<double> &param, int width)
 {
   eparam = param;
-  const int width = 5;
 
   map<vector<vector<int>>, pair<int,vector<int>>> beam;
   {
@@ -972,8 +1000,6 @@ pair<string, int> beam_search(const problem &prob, int seed, int tle, int mle,
 
   rng r(seed);
   for (int turn = 0; turn < prob.source_length; turn++) {
-    cerr << "turn: [" << turn << "/" << prob.source_length << "] " << beam.size() << endl;
-
     const unit &u = prob.units[r.get() % prob.units.size()];
     pt pos = get_init_pos(prob, u);
 
@@ -998,7 +1024,12 @@ pair<string, int> beam_search(const problem &prob, int seed, int tle, int mle,
         moves.push_back(m);
       auto move_score = it.prev_score;
       move_score += it.move_score;
-      next_beam[it.board] = make_pair(move_score, moves);
+      if (next_beam.count(it.board)) {
+        if (next_beam[it.board].first < move_score)
+          next_beam[it.board] = make_pair(move_score, moves);
+      }
+      else
+        next_beam[it.board] = make_pair(move_score, moves);
 
       if (move_score > best_score) {
         // cerr << "*** " << best_score << endl;
@@ -1009,12 +1040,13 @@ pair<string, int> beam_search(const problem &prob, int seed, int tle, int mle,
     beam = next_beam;
   }
 
-  return make_pair(to_ans(best_move), best_score);
+  auto moves = to_ans(best_move);
+  return make_pair(moves, best_score + power_score(moves));
 }
 
 
 pair<string, int> annealing(const problem &p, int seed, int tle, int mle, const string &tag,
-                            double init_temp, double temp_decay, int rounds)
+                            double init_temp, double temp_decay, int rounds, int beam_width)
 {
   int best_score = -1;
   string best_move;
@@ -1045,7 +1077,11 @@ pair<string, int> annealing(const problem &p, int seed, int tle, int mle, const 
       // pp[genrand_int31() % pp.size()] = genrand_real1() - 0.5;
     }
 
-    auto rr = solve(p, seed, tle, mle, pp, false);
+    // auto rr = solve(p, seed, tle, mle, pp, false);
+    auto rr =
+      beam_width == 1 ? solve(p, seed, tle, mle, pp, false)
+      : beam_search(p, seed, tle, mle, pp, beam_width);
+
     if (score <= rr.second ||
         genrand_real2() <= exp((rr.second - score) / temp)) {
       score = rr.second;
@@ -1056,10 +1092,10 @@ pair<string, int> annealing(const problem &p, int seed, int tle, int mle, const 
 
         cerr << "*BEST* " << p.id << "-" << seed << ", round " << t << ": " << best_score
              << "                      " << endl;
-        cerr << "param[] = [";
-        for (int i = 0; i < (int)pp.size(); i++)
-          cerr << pp[i] << ", ";
-        cerr << "]" << endl;;
+        // cerr << "param[] = [";
+        // for (int i = 0; i < (int)pp.size(); i++)
+        //   cerr << pp[i] << ", ";
+        // cerr << "]" << endl;;
 
         output_solution(p.id, seed, best_score, best_move, tag);
       }
@@ -1267,6 +1303,7 @@ int main(int argc, char *argv[])
   string rep_cmds;
 
   bool beam = false;
+  int beam_width;
 
   vector<double> def_param {4.17089, 1.37104, 1.36987, 1.4519, 0.139807, 3.30003, 1.5467, 1.16281, 0.395305, 1.95616 };
 
@@ -1319,7 +1356,8 @@ int main(int argc, char *argv[])
     }
     else if (arg == "-b") {
       beam = true;
-      i++;
+      beam_width = atoi(argv[i+1]);
+      i += 2;
     }
     else if (arg == "-r") {
       rep = true;
@@ -1359,12 +1397,14 @@ int main(int argc, char *argv[])
       cerr << "\n" << p.id << " [" << ++ttt << "/" << p.source_seeds.size() << "]" << endl;
 
       auto sol =
-        anneal ? annealing(p, seed, tle, mle, tag, init_temp, temp_decay, turns):
+        anneal ? annealing(p, seed, tle, mle, tag, init_temp, temp_decay, turns, beam_width):
         gene ? ga(p, seed, tle, mle, tag):
-        beam ? beam_search(p, seed, tle, mle, def_param):
+        beam ? beam_search(p, seed, tle, mle, def_param, beam_width):
         solve(p, seed, tle, mle, def_param, true);
 
       if (!anneal) replay(p, seed, sol.first);
+
+      cerr << "score: " << sol.second << endl;
 
       object o;
       o["problemId"] = value((int64_t)p.id);

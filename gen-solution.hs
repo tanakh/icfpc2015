@@ -26,5 +26,5 @@ main = do
     cons <- mapM (readFile . ("out-full/" ++)) gg
 
     putStrLn "["
-    putStr $ intercalate "," cons
+    putStr $ intercalate "," $ map (unlines . init . tail . lines) cons
     putStrLn "]"
