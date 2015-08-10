@@ -11,3 +11,20 @@
 The solver use feature of board, such as highest block, number of holes, narrow position and so on.
 Using feature, caluculate the score of board and choose best move for each unit.
 The weights of feature are determined by simulated annealing.
+
+I found these phrases of power:
+
+- ei!
+- r'lyeh
+- ia! ia!
+- yuggoth
+- planet 10
+- tsathoggua
+- yogSothoth
+- john bigboote
+- cthulhu fhtagn!
+- Ph'nglui mglw'nafh Cthulhu R'lyeh wgah'nagl fhtagn.
+
+and the solver try to inject these word as much as possible.
+When unit pops and any word can place the position,
+it always place the word unless it is on too high place.
