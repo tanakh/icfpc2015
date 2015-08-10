@@ -973,6 +973,7 @@ int can_use(const problem &prob,
             vector<vector<int>> &bd,
             set<pair<pair<int,int>, int>> &prevs)
 {
+
   int score = 0;
 
   for (auto &c: seq) {
@@ -1004,7 +1005,13 @@ int can_use(const problem &prob,
       // print_board(bd);
       // print_board_(bd, pos, u, rot);
 
-      if (pos.imag() < 5) return -1;
+      int highest = prob.height;
+      for (auto &c: u.members) {
+        auto d = rot_pivot(c + pos, u.pivot + pos, rot);
+        highest = min(highest, d.imag());
+      }
+
+      if (highest <= 5) return -1;
 
       score += put_unit(bd, pos, u, rot, 0).first;
       turn++;
@@ -1012,7 +1019,7 @@ int can_use(const problem &prob,
         return -1;
       prevs.clear();
 
-      pos = get_init_pos(prob, u);
+      pos = get_init_pos(prob, units[unit_ord[turn]]);
       rot = 0;
 
       if (!check(bd, pos, units[unit_ord[turn]], rot))
@@ -1058,6 +1065,8 @@ pair<string, int> solve(const problem &prob, int seed, int tle, int mle,
     bool injected = false;
 
     for (int j = 0; j < (int)words.size(); j++) {
+      if (words[j].length() > 20) continue;
+
       if (word_used & (1 << j)) continue;
 
       // if (genrand_int31() < 0.5) continue;
@@ -1208,7 +1217,7 @@ pair<string, int> annealing(const problem &p, int seed, int tle, int mle, const 
       pp[genrand_int31() % pp.size()] = genrand_real1() - 0.5;
     }
     else {
-      pp[genrand_int31() % pp.size()] += genrand_real1() * 0.5 - 0.25 + 1.0;
+      pp[genrand_int31() % pp.size()] += genrand_real1() * 0.5 - 0.25;
       // pp[genrand_int31() % pp.size()] = genrand_real1() - 0.5;
     }
 
@@ -1402,13 +1411,13 @@ int main(int argc, char *argv[])
 {
   ppw.insert("ei!");
   ppw.insert("r'lyeh");
-  ppw.insert("Ia! Ia!");
+  ppw.insert("ia! ia!");
   ppw.insert("yuggoth");
   ppw.insert("planet 10");
   ppw.insert("tsathoggua");
-  ppw.insert("YogSothoth");
-  ppw.insert("John Bigboote");
-  ppw.insert("Cthulhu fhtagn!");
+  ppw.insert("yogSothoth");
+  ppw.insert("john bigboote");
+  ppw.insert("cthulhu fhtagn!");
   ppw.insert("Ph'nglui mglw'nafh Cthulhu R'lyeh wgah'nagl fhtagn.");
 
   // srand(time(NULL));
@@ -1431,9 +1440,10 @@ int main(int argc, char *argv[])
   int rep_id;
   int rep_seed;
   string rep_cmds;
+  string rep_file;
 
   bool beam = false;
-  int beam_width;
+  int beam_width = 1;
 
   vector<double> def_param {4.17089, 1.37104, 1.36987, 1.4519, 0.139807, 3.30003, 1.5467, 1.16281, 0.395305, 1.95616 };
 
@@ -1499,12 +1509,33 @@ int main(int argc, char *argv[])
 
       i+=2;
     }
+    else if (arg == "-rr") {
+      rep = true;
+
+      istringstream iss(argv[i+1]);
+      char dmy;
+      iss >> rep_id >> dmy >> rep_seed >> dmy;
+      getline(iss, rep_file);
+
+      i+=2;
+    }
   }
 
   if (rep) {
     ostringstream fn;
     fn << "problems/problem_" << rep_id << ".json";
-    replay(read_problem(fn.str()), rep_seed, rep_cmds);
+
+    if (rep_file != "") {
+      ifstream ifs(rep_file.c_str());
+      value v;
+      parse(v, ifs);
+      string sol = v.get<picojson::array>()[0].get<object>()["solution"].get<string>();
+
+      replay(read_problem(fn.str()), rep_seed, sol);
+    }
+    else {
+      replay(read_problem(fn.str()), rep_seed, rep_cmds);
+    }
     return 0;
   }
 
