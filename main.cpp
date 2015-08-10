@@ -1447,6 +1447,12 @@ int main(int argc, char *argv[])
 
   vector<double> def_param {4.17089, 1.37104, 1.36987, 1.4519, 0.139807, 3.30003, 1.5467, 1.16281, 0.395305, 1.95616 };
 
+  anneal = true;
+  beam_width = 1;
+  init_temp = 250;
+  temp_decay = 0.992;
+  turns = 250;
+
   for (int i = 1; i < argc; ) {
     string arg = argv[i];
 
