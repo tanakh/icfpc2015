@@ -899,11 +899,27 @@ vector<vector<int>> make_board(const problem &prob)
   return bd;
 }
 
+vector<string> get_words()
+{
+  vector<string> words;
+  {
+    vector<pair<int, string>> ws;
+    for (auto &w: ppw)
+      ws.emplace_back(-w.length(), w);
+    sort(ws.begin(), ws.end());
+    for (auto &it: ws)
+      words.push_back(it.second);
+  }
+  return words;
+}
+
 int power_score(const string &cmds)
 {
   int ret = 0;
 
-  for (auto &word: ppw) {
+  auto words = get_words();
+
+  for (auto &word: words) {
     int reps = 0;
     for (int i = 0; i < (int)cmds.size(); i++) {
       bool ok = true;
@@ -941,7 +957,74 @@ void output_solution(int problem_id, int seed, int score, const string &moves, c
   ofs << "]" << endl;
 }
 
-pair<string, int> solve(const problem &prob, int seed, int tle, int mle, const vector<double> &param, bool progress)
+pair<pair<int,int>, set<pair<int,int>>> uposs(const unit &u, const pt &pos, int rot)
+{
+  set<pair<int,int>> ss;
+  for (auto &c: u.members) {
+    auto d = rot_pivot(c + pos, u.pivot + pos, rot);
+    ss.insert(make_pair(d.real(), d.imag()));
+  }
+  return make_pair(pt2pair(u.pivot + pos), ss);
+}
+
+int can_use(const problem &prob,
+            const string &seq, const vector<unit> &units, const vector<int> &unit_ord,
+            int &turn, pt &pos, int &rot,
+            vector<vector<int>> &bd,
+            set<pair<pair<int,int>, int>> &prevs)
+{
+  int score = 0;
+
+  for (auto &c: seq) {
+    pair<pair<int,int>, int> cc(pt2pair(pos), rot);
+
+    if (prevs.count(cc)) return -1;
+    prevs.insert(cc);
+
+    pt npos = pos;
+    int nrot = rot;
+
+    const unit &u = units[unit_ord[turn]];
+    command mov = to_command(c);
+    switch(mov) {
+    case W:   npos += pt(-2, 0); break;
+    case E:   npos += pt(2, 0); break;
+    case SW:  npos += pt(-1, 1); break;
+    case SE:  npos += pt(1, 1); break;
+    case CW:  nrot = (nrot + 1) % u.rot_max; break;
+    case CCW: nrot = (nrot + u.rot_max - 1) % u.rot_max; break;
+    }
+
+    if (check(bd, npos, u, nrot)) {
+      pos = npos;
+      rot = nrot;
+    }
+    else {
+      // cerr << "*** " << seq << endl;
+      // print_board(bd);
+      // print_board_(bd, pos, u, rot);
+
+      if (pos.imag() < 5) return -1;
+
+      score += put_unit(bd, pos, u, rot, 0).first;
+      turn++;
+      if (turn >= (int)unit_ord.size())
+        return -1;
+      prevs.clear();
+
+      pos = get_init_pos(prob, u);
+      rot = 0;
+
+      if (!check(bd, pos, units[unit_ord[turn]], rot))
+        return -1;
+    }
+  }
+
+  return score;
+}
+
+pair<string, int> solve(const problem &prob, int seed, int tle, int mle,
+                        const vector<double> &param, bool progress)
 {
   eparam = param;
 
@@ -953,16 +1036,71 @@ pair<string, int> solve(const problem &prob, int seed, int tle, int mle, const v
 
   int ls_old = 0;
 
+  int word_used = 0;
+
+  auto words = get_words();
+
   rng r(seed);
-  for (int turn = 0; turn < prob.source_length; turn++) {
-    const unit &u = prob.units[r.get() % prob.units.size()];
-    pt pos = get_init_pos(prob, u);
-    if (!check(bd, pos, u, 0)) break;
+  vector<int> unit_ids;
+  for (int i = 0; i < prob.source_length; i++)
+    unit_ids.push_back(r.get() % prob.units.size());
+
+  set<pair<pair<int,int>, int>> current_poss;
+  int turn = 0;
+  pt pos = get_init_pos(prob, prob.units[unit_ids[turn]]);
+  int rot = 0;
+
+  if (!check(bd, pos, prob.units[unit_ids[turn]], rot))
+    return make_pair("", 0);
+
+  for (; turn < (int)unit_ids.size(); ) {
+
+    bool injected = false;
+
+    for (int j = 0; j < (int)words.size(); j++) {
+      if (word_used & (1 << j)) continue;
+
+      // if (genrand_int31() < 0.5) continue;
+
+      int tmp_turn = turn;
+      pt tmp_pos = pos;
+      int tmp_rot = rot;
+      vector<vector<int>> tmp_bd = bd;
+      set<pair<pair<int,int>, int>> tmp_prevs = current_poss;
+
+      // cerr << "*** << " << tmp_bd.size() << ", " << bd.size() << ", " << words[j] << endl;
+
+      auto sc =
+        can_use(prob, words[j], prob.units, unit_ids, tmp_turn, tmp_pos, tmp_rot, tmp_bd, tmp_prevs);
+
+      if (sc >= 0) {
+        // cerr << "FOUND: " << words[j] << endl;
+        // print_board(tmp_bd);
+
+        word_used |= (1 << j);
+
+        for (auto &ch: words[j])
+          moves.push_back(to_command(ch));
+        move_score += sc;
+
+        // update
+        turn = tmp_turn;
+        pos = tmp_pos;
+        rot = tmp_rot;
+        bd = tmp_bd;
+        current_poss = tmp_prevs;
+
+        injected = true;
+        break;
+      }
+    }
+
+    if (injected) continue;
 
     vector<int> hist;
-    set<pair<pair<int,int>, int>> ss;
     candidate best;
-    rec(bd, u, pos, 0, hist, ss, best, ls_old, CW);
+    // current_poss.erase(make_pair(pt2pair(pos), rot));
+    rec(bd, prob.units[unit_ids[turn]], pos, rot, hist, current_poss, best, ls_old, CW);
 
     bd = best.board;
     for (auto &m: best.moves)
@@ -970,14 +1108,11 @@ pair<string, int> solve(const problem &prob, int seed, int tle, int mle, const v
     move_score += best.move_score;
     ls_old = best.ls_old;
 
-    if (progress) {
-      vlog() << "selected: " << best.score << endl;
-      print_board(bd);
-    }
-  }
-  if (progress) {
-    cerr << "id: " << prob.id << ", seed: " << seed << ", score: " << move_score << endl;
-    print_board(bd);
+    turn++;
+    current_poss.clear();
+    rot = 0;
+    if (turn < (int)unit_ids.size())
+      pos = get_init_pos(prob, prob.units[unit_ids[turn]]);
   }
 
   auto ms = to_ans(moves);
@@ -1196,16 +1331,6 @@ pair<string, int> ga(const problem &p, int seed, int tle, int mle, const string 
   return make_pair(best_move, best_score);
 }
 
-pair<pair<int,int>, set<pair<int,int>>> uposs(const unit &u, const pt &pos, int rot)
-{
-  set<pair<int,int>> ss;
-  for (auto &c: u.members) {
-    auto d = rot_pivot(c + pos, u.pivot + pos, rot);
-    ss.insert(make_pair(d.real(), d.imag()));
-  }
-  return make_pair(pt2pair(u.pivot + pos), ss);
-}
-
 void replay(const problem &prob, int seed, const string &moves)
 {
   vlog() << "replay:" << endl;
@@ -1276,12 +1401,15 @@ void replay(const problem &prob, int seed, const string &moves)
 int main(int argc, char *argv[])
 {
   ppw.insert("ei!");
-  ppw.insert("yuggoth");
   ppw.insert("r'lyeh");
-  ppw.insert("tsathoggua");
+  ppw.insert("Ia! Ia!");
+  ppw.insert("yuggoth");
   ppw.insert("planet 10");
+  ppw.insert("tsathoggua");
   ppw.insert("YogSothoth");
   ppw.insert("John Bigboote");
+  ppw.insert("Cthulhu fhtagn!");
+  ppw.insert("Ph'nglui mglw'nafh Cthulhu R'lyeh wgah'nagl fhtagn.");
 
   // srand(time(NULL));
   init_genrand(time(NULL));
